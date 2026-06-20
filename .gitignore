@@ -1,9 +1,19 @@
 node_modules
 .npm-cache/
 *.vsix
+*.tgz
+.coverage/
+.nyc_output/
+*.log
 .codebuddy/
 _context-output/
 _context/
+.vscode-test/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+desktop.ini
 
 # Environment secrets — NEVER commit real credentials
 .env
