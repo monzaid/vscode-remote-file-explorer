@@ -223,27 +223,15 @@ class RemoteFSProvider {
                         return;
                     }
                     else if (action === 'manual-merge') {
-                        // Open diff editor: local cache vs remote
-                        try {
-                            const remoteContent = await this.enqueueRemoteOp(() => this.adapter.readFile(remotePath), `readFile:${remotePath}`);
-                            // Write remote version to a temp cache entry for diff
-                            const diffRemotePath = remotePath + '.remote-base';
-                            await this.cacheManager.writeCache(this.connectionId, diffRemotePath, remoteContent);
-                            const scheme = `remote-${this.protocol}`;
-                            const localUri = vscode.Uri.parse(`${scheme}://${this.connectionId}${remotePath}`);
-                            const remoteUri = vscode.Uri.parse(`${scheme}://${this.connectionId}${diffRemotePath}`);
-                            await vscode.commands.executeCommand('vscode.diff', localUri, remoteUri, `Merge: ${remotePath.split('/').pop()} (Local ↔ Remote)`);
-                        }
-                        catch (e) {
-                            vscode.window.showErrorMessage(`Failed to open diff: ${e instanceof Error ? e.message : e}`);
-                        }
+                        // Open diff editor — don't write
                         return;
                     }
                     // force-overwrite: fall through to write
                 }
             }
         }
-        // Update cache only — Ctrl+S must not upload to remote
+        await this.enqueueRemoteOp(() => this.adapter.writeFile(remotePath, content), `writeFile:${remotePath}`);
+        // Update cache
         await this.cacheManager.writeCache(this.connectionId, remotePath, content);
         // Notify file change
         this._onDidChangeFile.fire([{ type: vscode.FileChangeType.Changed, uri }]);

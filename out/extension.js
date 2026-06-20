@@ -45,7 +45,6 @@ const RemoteFSProvider_1 = require("./providers/RemoteFSProvider");
 const ConflictResolver_1 = require("./providers/ConflictResolver");
 const TerminalManager_1 = require("./terminal/TerminalManager");
 const SearchEngine_1 = require("./search/SearchEngine");
-const SearchPanelProvider_1 = require("./providers/SearchPanelProvider");
 const SSHAdapter_1 = require("./adapters/SSHAdapter");
 const ConnectionDialog_1 = require("./ui/ConnectionDialog");
 const commandRegistry_1 = require("./commands/commandRegistry");
@@ -113,7 +112,6 @@ async function activate(context) {
         connectionDialog = new ConnectionDialog_1.ConnectionDialog();
         // Initialize search and terminal managers
         const searchEngine = new SearchEngine_1.SearchEngine();
-        const searchPanelProvider = new SearchPanelProvider_1.SearchPanelProvider(context.extensionUri, searchEngine);
         terminalManager = new TerminalManager_1.TerminalManager(connectionManager);
         // Register adapter factory
         connectionManager.setAdapterFactory((protocol) => {
@@ -133,8 +131,6 @@ async function activate(context) {
             showCollapseAll: true,
         });
         context.subscriptions.push(treeView);
-        // Register SearchPanelProvider as a webview view
-        context.subscriptions.push(vscode.window.registerWebviewViewProvider(SearchPanelProvider_1.SearchPanelProvider.viewType, searchPanelProvider));
         // Register FileSystemProvider for each active connection
         // (will be dynamically registered when connections are established)
         const fsProviderDisposables = [];
@@ -159,12 +155,6 @@ async function activate(context) {
                     context.subscriptions.push(fsDisposable);
                     // Register adapter with sidebar
                     sidebarProvider.registerAdapter(event.connectionId, adapter);
-                    // Register adapter with search panel
-                    searchPanelProvider.setAdapter(event.connectionId, adapter);
-                    searchPanelProvider.updateConnections(connectionManager.getActiveConnectionIds().map((id) => {
-                        const c = connectionManager.getAllConnections().find((x) => x.id === id);
-                        return { id, protocol: c?.protocol ?? 'ssh' };
-                    }));
                     // Set up sync command handlers
                     const syncHandler = new syncCommands_1.SyncCommandHandler(event.connectionId, adapter, cacheManager, conflictResolver, protocol);
                     // Store sync handler reference for command use
@@ -174,11 +164,6 @@ async function activate(context) {
             }
             if (event.status === 'disconnected' || event.status === 'error') {
                 sidebarProvider.unregisterAdapter(event.connectionId);
-                searchPanelProvider.removeAdapter(event.connectionId);
-                searchPanelProvider.updateConnections(connectionManager.getActiveConnectionIds().map((id) => {
-                    const c = connectionManager.getAllConnections().find((x) => x.id === id);
-                    return { id, protocol: c?.protocol ?? 'ssh' };
-                }));
             }
         });
         // Inject dependencies into command registry so all commands have access
@@ -222,13 +207,6 @@ async function activate(context) {
         }));
         context.subscriptions.push(vscode.commands.registerCommand('remote-fs.openTerminal', async (node) => {
             await terminalManager.openTerminal(node?.connectionId);
-        }));
-        // Register command to focus the search panel
-        context.subscriptions.push(vscode.commands.registerCommand('remote-fs.searchPanel', async () => {
-            // The search panel is a webviewView in the "Remote Search" panel container.
-            // Opening it is done by VS Code when the user clicks the panel, but
-            // we can help focus it by executing the focus command on the view.
-            await vscode.commands.executeCommand('remote-fs-search.view.focus');
         }));
         context.subscriptions.push(vscode.commands.registerCommand('remote-fs.manageConnections', async () => {
             const connections = connectionManager.getAllConnections();

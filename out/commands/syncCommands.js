@@ -142,20 +142,8 @@ class SyncCommandHandler {
                         return;
                     }
                     else if (action === 'manual-merge') {
-                        try {
-                            // Fetch remote content for diff
-                            const remoteContent = await this.adapter.readFile(remotePath);
-                            // Save remote version as a temp diff base
-                            const diffRemotePath = remotePath + '.remote-base';
-                            await this.cacheManager.writeCache(this.connectionId, diffRemotePath, remoteContent);
-                            const scheme = `remote-${this.protocol}`;
-                            const localUri = vscode.Uri.parse(`${scheme}://${this.connectionId}${remotePath}`);
-                            const remoteDiffUri = vscode.Uri.parse(`${scheme}://${this.connectionId}${diffRemotePath}`);
-                            await vscode.commands.executeCommand('vscode.diff', localUri, remoteDiffUri, `Merge: ${remotePath.split('/').pop()} (Local ↔ Remote)`);
-                        }
-                        catch (e) {
-                            vscode.window.showErrorMessage(`Failed to open diff: ${e instanceof Error ? e.message : e}`);
-                        }
+                        // Open diff — handled by ConflictResolver
+                        vscode.window.showInformationMessage('Opening diff editor for manual merge.');
                         return;
                     }
                     // force-overwrite: continue to upload
