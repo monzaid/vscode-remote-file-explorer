@@ -1,0 +1,10 @@
+node_modules
+.npm-cache/
+*.vsix
+.codebuddy/
+_context-output/
+_context/
+
+# Environment secrets — NEVER commit real credentials
+.env
+

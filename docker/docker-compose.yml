@@ -1,0 +1,47 @@
+version: '3.8'
+
+# =============================================================================
+# Security: All credentials are externalized to .env file.
+# Copy .env.example to .env and customize before running.
+# SSH key-based authentication is recommended for production.
+# See: https://docs.linuxserver.io/images/docker-openssh-server/#key-based-authentication
+# =============================================================================
+
+services:
+  ssh-server:
+    image: linuxserver/openssh-server:latest
+    container_name: remote-fs-test-ssh
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=UTC
+      # Set PASSWORD_ACCESS=false and mount authorized_keys for key-based auth in production
+      - PASSWORD_ACCESS=${SSH_PASSWORD_ACCESS:-true}
+      - USER_NAME=${SSH_USER:-testuser}
+      - USER_PASSWORD=${SSH_PASSWORD:-changeme}
+      - SUDO_ACCESS=${SSH_SUDO_ACCESS:-false}
+    ports:
+      - "${TEST_SSH_PORT:-2222}:2222"
+    volumes:
+      - ./data:/home/testuser/data:ro
+      - ./sshd/custom-init.sh:/custom-cont-init.d/custom-init.sh:ro
+    restart: unless-stopped
+
+  ftp-server:
+    image: fauria/vsftpd:latest
+    container_name: remote-fs-test-ftp
+    environment:
+      - FTP_USER=${FTP_USER:-ftpuser}
+      - FTP_PASS=${FTP_PASS:-changeme}
+      - PASV_ADDRESS=${FTP_PASV_ADDRESS:-127.0.0.1}
+      - PASV_MIN_PORT=21100
+      - PASV_MAX_PORT=21110
+      - ANONYMOUS_ENABLE=${FTP_ANONYMOUS_ENABLE:-NO}
+      - LOCAL_UMASK=022
+    ports:
+      - "${TEST_FTP_PORT:-2121}:21"
+      - "21100-21110:21100-21110"
+    volumes:
+      - ./data:/home/ftpuser/data:ro
+      - ./vsftpd/vsftpd.conf:/etc/vsftpd/vsftpd.conf:ro
+    restart: unless-stopped

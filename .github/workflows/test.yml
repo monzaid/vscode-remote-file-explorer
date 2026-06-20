@@ -1,0 +1,53 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x]
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compile
+        run: npm run compile
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm run test:unit
+
+      - name: Start Docker test environment
+        run: |
+          cd docker
+          docker compose up -d
+          sleep 10
+
+      - name: Integration tests
+        run: npm run test:integration
+
+      - name: Stop Docker
+        if: always()
+        run: cd docker && docker compose down
+
+      - name: E2E tests (Linux only)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a npm run test:e2e

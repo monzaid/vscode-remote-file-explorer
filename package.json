@@ -1,0 +1,281 @@
+{
+  "name": "remote-file-explorer",
+  "displayName": "Remote File Explorer",
+  "description": "Browse, edit, search remote server files via SSH/SFTP, FTP, and Agent protocols",
+  "version": "0.1.0",
+  "publisher": "remote-fs",
+  "license": "MIT",
+  "icon": "icon.png",
+  "galleryBanner": {
+    "color": "#1e1e1e",
+    "theme": "dark"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/remote-fs/remote-file-explorer"
+  },
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "activationEvents": [
+    "onCommand:remote-fs.addConnection",
+    "onCommand:remote-fs.toggleConnection",
+    "onCommand:remote-fs.refresh",
+    "onCommand:remote-fs.openTerminal",
+    "onCommand:remote-fs.manageConnections",
+    "onCommand:remote-fs.search",
+    "onCommand:remote-fs.syncCurrentFile",
+    "onCommand:remote-fs.uploadCurrentFile",
+    "onCommand:remote-fs.connect",
+    "onCommand:remote-fs.disconnect",
+    "onCommand:remote-fs.newFile",
+    "onCommand:remote-fs.newFolder",
+    "onCommand:remote-fs.deleteFile",
+    "onCommand:remote-fs.renameFile",
+    "onCommand:remote-fs.copyPath",
+    "onCommand:remote-fs.downloadToLocal",
+    "onView:remote-fs-explorer"
+  ],
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "remote",
+    "ssh",
+    "ftp",
+    "file-explorer",
+    "sftp"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "views": {
+      "explorer": [
+        {
+          "id": "remote-fs-explorer",
+          "name": "Remote Explorer",
+          "icon": "icon.png"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "remote-fs.addConnection",
+        "title": "Remote FS: Add Connection"
+      },
+      {
+        "command": "remote-fs.toggleConnection",
+        "title": "Remote FS: Connect/Disconnect"
+      },
+      {
+        "command": "remote-fs.search",
+        "title": "Remote FS: Search Files"
+      },
+      {
+        "command": "remote-fs.refresh",
+        "title": "Remote FS: Refresh Explorer"
+      },
+      {
+        "command": "remote-fs.syncCurrentFile",
+        "title": "Remote FS: Sync Current File"
+      },
+      {
+        "command": "remote-fs.uploadCurrentFile",
+        "title": "Remote FS: Upload Current File"
+      },
+      {
+        "command": "remote-fs.openTerminal",
+        "title": "Remote FS: Open SSH Terminal"
+      },
+      {
+        "command": "remote-fs.manageConnections",
+        "title": "Remote FS: Manage Connections"
+      },
+      {
+        "command": "remote-fs.connect",
+        "title": "Connect"
+      },
+      {
+        "command": "remote-fs.disconnect",
+        "title": "Disconnect"
+      },
+      {
+        "command": "remote-fs.newFile",
+        "title": "New File"
+      },
+      {
+        "command": "remote-fs.newFolder",
+        "title": "New Folder"
+      },
+      {
+        "command": "remote-fs.deleteFile",
+        "title": "Delete"
+      },
+      {
+        "command": "remote-fs.renameFile",
+        "title": "Rename"
+      },
+      {
+        "command": "remote-fs.copyPath",
+        "title": "Copy Remote Path"
+      },
+      {
+        "command": "remote-fs.downloadToLocal",
+        "title": "Download to Local"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "remote-fs.addConnection",
+          "when": "view == remote-fs-explorer",
+          "group": "navigation"
+        },
+        {
+          "command": "remote-fs.refresh",
+          "when": "view == remote-fs-explorer",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "remote-fs.connect",
+          "when": "viewItem == connection && view == remote-fs-explorer",
+          "group": "inline"
+        },
+        {
+          "command": "remote-fs.disconnect",
+          "when": "viewItem == connection && view == remote-fs-explorer",
+          "group": "inline"
+        },
+        {
+          "command": "remote-fs.openTerminal",
+          "when": "viewItem == connection && view == remote-fs-explorer",
+          "group": "1_connection"
+        },
+        {
+          "command": "remote-fs.manageConnections",
+          "when": "viewItem == connection && view == remote-fs-explorer",
+          "group": "2_connection"
+        },
+        {
+          "command": "remote-fs.newFile",
+          "when": "viewItem == directory && view == remote-fs-explorer",
+          "group": "1_directory"
+        },
+        {
+          "command": "remote-fs.newFolder",
+          "when": "viewItem == directory && view == remote-fs-explorer",
+          "group": "1_directory"
+        },
+        {
+          "command": "remote-fs.refresh",
+          "when": "viewItem == directory && view == remote-fs-explorer",
+          "group": "2_directory"
+        },
+        {
+          "command": "remote-fs.deleteFile",
+          "when": "viewItem =~ /^(file|directory)$/ && view == remote-fs-explorer",
+          "group": "3_common"
+        },
+        {
+          "command": "remote-fs.renameFile",
+          "when": "viewItem =~ /^(file|directory)$/ && view == remote-fs-explorer",
+          "group": "3_common"
+        },
+        {
+          "command": "remote-fs.copyPath",
+          "when": "viewItem =~ /^(file|directory)$/ && view == remote-fs-explorer",
+          "group": "4_common"
+        },
+        {
+          "command": "remote-fs.syncCurrentFile",
+          "when": "viewItem == file && view == remote-fs-explorer",
+          "group": "inline"
+        },
+        {
+          "command": "remote-fs.uploadCurrentFile",
+          "when": "viewItem == file && view == remote-fs-explorer",
+          "group": "inline"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Remote File Explorer",
+      "properties": {
+        "remote-fs.maxFileSize": {
+          "type": "number",
+          "default": 104857600,
+          "description": "Maximum file size in bytes to open (default 100MB)"
+        },
+        "remote-fs.warnFileSize": {
+          "type": "number",
+          "default": 5242880,
+          "description": "File size threshold in bytes to show warning (default 5MB)"
+        },
+        "remote-fs.cacheMaxSize": {
+          "type": "number",
+          "default": 524288000,
+          "description": "Maximum cache size in bytes (default 500MB)"
+        },
+        "remote-fs.autoReconnect": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically reconnect on disconnect"
+        },
+        "remote-fs.reconnectMaxAttempts": {
+          "type": "number",
+          "default": 3,
+          "description": "Maximum reconnection attempts"
+        },
+        "remote-fs.connectTimeout": {
+          "type": "number",
+          "default": 30000,
+          "description": "Connection timeout in milliseconds"
+        },
+        "remote-fs.treeBatchSize": {
+          "type": "number",
+          "default": 0,
+          "description": "Maximum items to show per directory. 0 shows all."
+        },
+        "remote-fs.maxTreeItems": {
+          "type": "number",
+          "default": 2000,
+          "description": "Hard limit for tree items per directory"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src/ --ext .ts",
+    "test": "mocha -r ts-node/register src/test/**/*.test.ts",
+    "test:unit": "mocha -r ts-node/register src/test/unit/**/*.test.ts",
+    "test:integration": "mocha -r ts-node/register src/test/integration/**/*.test.ts --timeout 30000",
+    "test:e2e": "node src/test/e2e/runTest.js",
+    "package": "vsce package"
+  },
+  "dependencies": {
+    "ssh2": "~1.15.0",
+    "basic-ftp": "~5.0.0"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.74.0",
+    "@types/ssh2": "^1.15.0",
+    "@types/mocha": "^10.0.0",
+    "@types/chai": "^4.3.0",
+    "@types/sinon": "^17.0.0",
+    "@types/node": "^18.0.0",
+    "typescript": "^5.3.0",
+    "eslint": "^8.50.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "mocha": "^10.2.0",
+    "chai": "^4.3.0",
+    "sinon": "^17.0.0",
+    "ts-node": "^10.9.0",
+    "@vscode/test-electron": "^2.3.0",
+    "@vscode/vsce": "^2.22.0"
+  }
+}
