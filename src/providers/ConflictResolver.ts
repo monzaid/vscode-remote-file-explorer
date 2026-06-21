@@ -39,8 +39,9 @@ export class ConflictResolver {
     try {
       const remoteStat = await this.adapter.stat(remotePath);
       const remoteMtime = remoteStat.mtime;
-      const timeDiff = Math.abs(remoteMtime.getTime() - localMtime.getTime());
-      if (timeDiff > 1000) {
+      // Only a conflict when remote is newer than local.
+      // If local > remote, the user just edited — no conflict, safe to upload/download.
+      if (remoteMtime.getTime() - localMtime.getTime() > 1000) {
         return { hasConflict: true, remoteMtime, localMtime };
       }
       return { hasConflict: false };
