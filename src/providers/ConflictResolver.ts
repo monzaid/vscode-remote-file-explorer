@@ -32,29 +32,20 @@ export class ConflictResolver {
   }
 
   /**
-   * Check if local cache differs from remote using content hash.
-   * Stage 1 (fast): compare file sizes → Stage 2 (accurate): compare SHA-256 hashes.
+   * Check if local cache conflicts with remote using content hash.
+   * Compares remote hash vs baseline hash (.base), and also detects
+   * local edits (current hash ≠ baseline) even when remote is unchanged.
    */
   async checkConflict(connectionId: string, remotePath: string): Promise<ConflictResult> {
     if (this.getSkipSet(connectionId).has(remotePath)) {
       return { hasConflict: false };
     }
     try {
-      // Stage 1: compare sizes (no download needed)
-      const remoteStat = await this.adapter.stat(remotePath);
       const cacheStat = await this.cacheManager.getCacheStat(connectionId, remotePath);
-
-      // No local cache → nothing to compare against → no conflict
       if (!cacheStat.exists) {
         return { hasConflict: false };
       }
 
-      // Stage 1: compare sizes (no download needed)
-      if (cacheStat.size !== remoteStat.size) {
-        return { hasConflict: true };
-      }
-
-      // Stage 2: sizes match — compare remote hash vs baseline hash
       const remoteContent = await this.adapter.readFile(remotePath);
       const remoteHash = crypto.createHash('sha256').update(remoteContent).digest('hex');
       const baseHash = await this.cacheManager.readBase(connectionId, remotePath);
@@ -64,13 +55,19 @@ export class ConflictResolver {
         return { hasConflict: false };
       }
 
+      // Remote changed → conflict
       if (remoteHash !== baseHash) {
+        return { hasConflict: true };
+      }
+
+      // Remote unchanged, but local has been edited → conflict (only for download flow)
+      const localHash = await this.cacheManager.readHash(connectionId, remotePath);
+      if (localHash && localHash !== baseHash) {
         return { hasConflict: true };
       }
 
       return { hasConflict: false };
     } catch {
-      // If remote stat/read fails (file deleted, etc.) — no conflict to resolve
       return { hasConflict: false };
     }
   }

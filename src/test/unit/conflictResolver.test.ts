@@ -46,9 +46,11 @@ class MockAdapter implements IProtocolAdapter {
 class MockCacheManager {
   private _cacheSize: number = 1024;
   private _baseHash: string | null = null;
+  private _localHash: string | null = null;
   private _exists: boolean = true;
 
   setBaseHash(hash: string | null) { this._baseHash = hash; }
+  setLocalHash(hash: string | null) { this._localHash = hash; }
   setCacheSize(size: number) { this._cacheSize = size; }
   setExists(exists: boolean) { this._exists = exists; }
 
@@ -56,7 +58,7 @@ class MockCacheManager {
     return Promise.resolve({ exists: this._exists, size: this._cacheSize });
   }
   readBase(): Promise<string | null> { return Promise.resolve(this._baseHash); }
-  readHash(): Promise<string | null> { return Promise.resolve(null); }
+  readHash(): Promise<string | null> { return Promise.resolve(this._localHash); }
   writeBase(): Promise<void> { return Promise.resolve(); }
   writeHash(): Promise<void> { return Promise.resolve(); }
   writeCache(): Promise<void> { return Promise.resolve(); }
@@ -89,27 +91,16 @@ describe('ConflictResolver', () => {
       expect(resolver.checkConflict.length).to.equal(2);
     });
 
-    it('should return { hasConflict: false } when sizes match AND base matches remote', async () => {
-      adapter.setRemoteSize(1024);
-      cacheManager.setCacheSize(1024);
+    it('should return { hasConflict: false } when base matches remote AND no local edits', async () => {
       adapter.setRemoteContent(new Uint8Array([1, 2, 3]));
       cacheManager.setBaseHash('039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81');
+      cacheManager.setLocalHash('039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81');
 
       const result = await resolver.checkConflict('conn-1', '/file.txt');
       expect(result.hasConflict).to.be.false;
     });
 
-    it('should return { hasConflict: true } when sizes differ', async () => {
-      adapter.setRemoteSize(2048);
-      cacheManager.setCacheSize(1024);
-
-      const result = await resolver.checkConflict('conn-1', '/file.txt');
-      expect(result.hasConflict).to.be.true;
-    });
-
-    it('should return { hasConflict: true } when sizes match but base differs', async () => {
-      adapter.setRemoteSize(1024);
-      cacheManager.setCacheSize(1024);
+    it('should return { hasConflict: true } when remote differs from base', async () => {
       adapter.setRemoteContent(new Uint8Array([4, 5, 6]));
       cacheManager.setBaseHash('039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81');
 
@@ -117,9 +108,16 @@ describe('ConflictResolver', () => {
       expect(result.hasConflict).to.be.true;
     });
 
+    it('should return { hasConflict: true } when remote matches base but local has been edited', async () => {
+      adapter.setRemoteContent(new Uint8Array([1, 2, 3]));
+      cacheManager.setBaseHash('039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81');
+      cacheManager.setLocalHash('787c798e39a5bc1910355bae6d0cd87a36b2e10fd0202a83e3bb6b005da83472');
+
+      const result = await resolver.checkConflict('conn-1', '/file.txt');
+      expect(result.hasConflict).to.be.true;
+    });
+
     it('should return { hasConflict: false } when no baseline (first sync)', async () => {
-      adapter.setRemoteSize(1024);
-      cacheManager.setCacheSize(1024);
       cacheManager.setBaseHash(null);
 
       const result = await resolver.checkConflict('conn-1', '/file.txt');
@@ -155,8 +153,9 @@ describe('ConflictResolver', () => {
       resolver.skipForSession('conn-1', '/skip/file.txt');
       resolver.clearSkipSet('conn-1');
 
-      adapter.setRemoteSize(2048);
-      cacheManager.setCacheSize(1024);
+      // Set up a hash mismatch to trigger conflict
+      adapter.setRemoteContent(new Uint8Array([9, 9, 9]));
+      cacheManager.setBaseHash('039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81');
       const result = await resolver.checkConflict('conn-1', '/skip/file.txt');
       expect(result.hasConflict).to.be.true;
     });
