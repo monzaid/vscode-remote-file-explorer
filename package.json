@@ -128,74 +128,112 @@
         {
           "command": "remote-fs.addConnection",
           "when": "view == remote-fs-explorer",
-          "group": "navigation"
+          "group": "navigation",
+          "icon": "$(add)"
         },
         {
           "command": "remote-fs.refresh",
           "when": "view == remote-fs-explorer",
-          "group": "navigation"
+          "group": "navigation",
+          "icon": "$(refresh)"
+        },
+        {
+          "command": "remote-fs.search",
+          "when": "view == remote-fs-explorer",
+          "group": "navigation",
+          "icon": "$(search)"
+        },
+        {
+          "command": "remote-fs.manageConnections",
+          "when": "view == remote-fs-explorer",
+          "group": "navigation",
+          "icon": "$(gear)"
+        },
+        {
+          "command": "remote-fs.toggleConnection",
+          "when": "view == remote-fs-explorer",
+          "group": "navigation",
+          "icon": "$(debug-start)"
         }
       ],
       "view/item/context": [
         {
           "command": "remote-fs.connect",
           "when": "viewItem == connection && view == remote-fs-explorer",
-          "group": "inline"
+          "group": "inline@1",
+          "icon": "$(plug)"
         },
         {
           "command": "remote-fs.disconnect",
           "when": "viewItem == connection && view == remote-fs-explorer",
-          "group": "inline"
+          "group": "inline@2",
+          "icon": "$(debug-disconnect)"
         },
         {
           "command": "remote-fs.openTerminal",
           "when": "viewItem == connection && view == remote-fs-explorer",
-          "group": "1_connection"
+          "group": "inline@3",
+          "icon": "$(terminal)"
         },
         {
           "command": "remote-fs.manageConnections",
           "when": "viewItem == connection && view == remote-fs-explorer",
-          "group": "2_connection"
+          "group": "1_connection",
+          "icon": "$(gear)"
         },
         {
           "command": "remote-fs.newFile",
           "when": "viewItem == directory && view == remote-fs-explorer",
-          "group": "1_directory"
+          "group": "inline@1",
+          "icon": "$(new-file)"
         },
         {
           "command": "remote-fs.newFolder",
           "when": "viewItem == directory && view == remote-fs-explorer",
-          "group": "1_directory"
+          "group": "inline@2",
+          "icon": "$(new-folder)"
         },
         {
           "command": "remote-fs.refresh",
           "when": "viewItem == directory && view == remote-fs-explorer",
-          "group": "2_directory"
+          "group": "2_directory",
+          "icon": "$(refresh)"
         },
         {
           "command": "remote-fs.deleteFile",
           "when": "viewItem =~ /^(file|directory)$/ && view == remote-fs-explorer",
-          "group": "3_common"
+          "group": "3_common",
+          "icon": "$(trash)"
         },
         {
           "command": "remote-fs.renameFile",
           "when": "viewItem =~ /^(file|directory)$/ && view == remote-fs-explorer",
-          "group": "3_common"
+          "group": "3_common",
+          "icon": "$(edit)"
         },
         {
           "command": "remote-fs.copyPath",
           "when": "viewItem =~ /^(file|directory)$/ && view == remote-fs-explorer",
-          "group": "4_common"
+          "group": "4_common",
+          "icon": "$(copy)"
+        },
+        {
+          "command": "remote-fs.downloadToLocal",
+          "when": "viewItem == file && view == remote-fs-explorer",
+          "group": "4_common",
+          "icon": "$(desktop-download)"
         },
         {
           "command": "remote-fs.syncCurrentFile",
           "when": "viewItem == file && view == remote-fs-explorer",
-          "group": "inline"
+          "group": "inline@1",
+          "icon": "$(cloud-download)"
         },
         {
           "command": "remote-fs.uploadCurrentFile",
           "when": "viewItem == file && view == remote-fs-explorer",
-          "group": "inline"
+          "group": "inline@2",
+          "icon": "$(cloud-upload)"
         }
       ]
     },
