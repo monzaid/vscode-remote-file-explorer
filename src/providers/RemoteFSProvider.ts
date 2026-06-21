@@ -267,31 +267,25 @@ export class RemoteFSProvider implements vscode.FileSystemProvider {
         );
 
         if (conflictResult.hasConflict) {
-          const action = await this.conflictResolver.resolveConflict(remotePath);
+          const action = await this.conflictResolver.resolveConflict(remotePath, 'upload');
           if (action === 'keep-remote') {
-            // Download remote version instead
-            const remoteContent = await this.enqueueRemoteOp(
-              () => this.adapter.readFile(remotePath),
-              `readFile:${remotePath}`,
-            );
-            await this.cacheManager.writeCache(this.connectionId, remotePath, remoteContent);
+            // Cancel write — keep remote version
             return;
           } else if (action === 'manual-merge') {
-            // Open diff editor: local cache vs remote
+            // Open diff editor: local cache vs remote via temp file (avoid RemoteFS route)
             try {
               const remoteContent = await this.enqueueRemoteOp(
                 () => this.adapter.readFile(remotePath),
                 `readFile:${remotePath}`,
               );
-              const diffRemotePath = remotePath + '.remote-base';
-              await this.cacheManager.writeCache(this.connectionId, diffRemotePath, remoteContent);
-              const scheme = `remote-${this.protocol}`;
-              const localUri = vscode.Uri.parse(`${scheme}://${this.connectionId}${remotePath}`);
-              const remoteUri = vscode.Uri.parse(`${scheme}://${this.connectionId}${diffRemotePath}`);
+              const baseUri = await this.conflictResolver.writeRemoteTemp(remotePath, remoteContent);
+              const localUri = this.adapter ? vscode.Uri.parse(
+                `remote-${this.protocol}://${this.connectionId}${remotePath}`
+              ) : uri;
               await vscode.commands.executeCommand(
                 'vscode.diff',
                 localUri,
-                remoteUri,
+                baseUri,
                 `Merge: ${remotePath.split('/').pop()} (Local ↔ Remote)`,
               );
             } catch (e) {

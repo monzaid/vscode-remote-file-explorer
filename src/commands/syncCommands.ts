@@ -29,11 +29,10 @@ export class SyncCommandHandler {
 
   /**
    * ⬇️ Download: Sync file from remote to local cache.
-   * Compares timestamps and only downloads if remote is newer.
+   * Compares timestamps; shows conflict dialog when remote differs.
    */
   async syncFromRemote(remotePath: string): Promise<void> {
     try {
-      // ═══ P0-3: 检查编辑器是否有未保存的修改 ═══
       const scheme = `remote-${this.protocol}`;
       const remoteUri = vscode.Uri.parse(`${scheme}://${this.connectionId}${remotePath}`);
 
@@ -54,13 +53,42 @@ export class SyncCommandHandler {
         }
       }
 
-      // Check local cache timestamp
+      // Check local cache timestamp and compare with remote
       const cacheStat = await this.cacheManager.getCacheStat(this.connectionId, remotePath);
 
       if (cacheStat.exists && cacheStat.mtime) {
-        // Compare with remote timestamp
-        const remoteStat = await this.adapter.stat(remotePath);
-        if (remoteStat.mtime.getTime() <= cacheStat.mtime.getTime()) {
+        const conflict = await this.conflictResolver.checkConflict(
+          this.connectionId,
+          remotePath,
+          cacheStat.mtime,
+        );
+
+        if (conflict.hasConflict) {
+          const action = await this.conflictResolver.resolveConflict(remotePath, 'download');
+
+          if (action === 'keep-remote') {
+            // Keep Local — cancel download
+            vscode.window.showInformationMessage('Kept local version.');
+            return;
+          } else if (action === 'manual-merge') {
+            // Open diff editor: local cache vs remote
+            try {
+              const remoteContent = await this.adapter.readFile(remotePath);
+              const baseUri = await this.conflictResolver.writeRemoteTemp(remotePath, remoteContent);
+              const localUri = vscode.Uri.parse(`${scheme}://${this.connectionId}${remotePath}`);
+              await vscode.commands.executeCommand(
+                'vscode.diff',
+                localUri,
+                baseUri,
+                `Merge: ${remotePath.split('/').pop()} (Local ↔ Remote)`,
+              );
+            } catch (e) {
+              vscode.window.showErrorMessage(`Failed to open diff: ${e instanceof Error ? e.message : e}`);
+            }
+            return;
+          }
+          // Download & Overwrite: fall through
+        } else {
           vscode.window.showInformationMessage('File is already up to date.');
           return;
         }
@@ -70,30 +98,19 @@ export class SyncCommandHandler {
       const content = await this.adapter.readFile(remotePath);
       await this.cacheManager.writeCache(this.connectionId, remotePath, content);
 
-      // Refresh open editors if this file is open
+      // Refresh open editors
       const fileName = remotePath.split('/').pop() || remotePath;
-
-      // Build the remote URI to match editors precisely.
-      // The editor's document.uri for a remote file follows the pattern:
-      //   remote-{protocol}://<connectionId><remotePath>
-      // We construct the expected URI and compare via toString() for exact matching.
-      const targetUri = vscode.Uri.parse(
-        `${scheme}://${this.connectionId}${remotePath}`,
-      );
+      const targetUri = vscode.Uri.parse(`${scheme}://${this.connectionId}${remotePath}`);
 
       const openEditors = vscode.window.visibleTextEditors;
       for (const editor of openEditors) {
         if (editor.document.uri.toString() === targetUri.toString()) {
-          // Replace the entire document content with the freshly downloaded content
           const fullRange = new vscode.Range(
             editor.document.positionAt(0),
             editor.document.positionAt(editor.document.getText().length),
           );
           const text = new TextDecoder().decode(content);
-          await editor.edit((editBuilder) => {
-            editBuilder.replace(fullRange, text);
-          });
-          // Save the updated document to persist the change
+          await editor.edit((editBuilder) => { editBuilder.replace(fullRange, text); });
           await editor.document.save();
         }
       }
@@ -149,26 +166,22 @@ export class SyncCommandHandler {
         );
 
         if (conflict.hasConflict) {
-          const action = await this.conflictResolver.resolveConflict(remotePath);
+          const action = await this.conflictResolver.resolveConflict(remotePath, 'upload');
 
           if (action === 'keep-remote') {
-            // Download remote version
-            const remoteContent = await this.adapter.readFile(remotePath);
-            await this.cacheManager.writeCache(this.connectionId, remotePath, remoteContent);
-            vscode.window.showInformationMessage('Kept remote version.');
+            // Cancel Upload — keep remote version, do nothing
+            vscode.window.showInformationMessage('Upload cancelled. Remote version kept.');
             return;
           } else if (action === 'manual-merge') {
-            // Open diff editor: local cache vs remote
+            // Open diff editor: local cache vs remote via temp file
             try {
               const remoteContent = await this.adapter.readFile(remotePath);
-              const diffRemotePath = remotePath + '.remote-base';
-              await this.cacheManager.writeCache(this.connectionId, diffRemotePath, remoteContent);
+              const baseUri = await this.conflictResolver.writeRemoteTemp(remotePath, remoteContent);
               const localUri = vscode.Uri.parse(`${scheme}://${this.connectionId}${remotePath}`);
-              const remoteDiffUri = vscode.Uri.parse(`${scheme}://${this.connectionId}${diffRemotePath}`);
               await vscode.commands.executeCommand(
                 'vscode.diff',
                 localUri,
-                remoteDiffUri,
+                baseUri,
                 `Merge: ${remotePath.split('/').pop()} (Local ↔ Remote)`,
               );
             } catch (e) {
