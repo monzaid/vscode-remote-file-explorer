@@ -304,11 +304,9 @@ export class RemoteFSProvider implements vscode.FileSystemProvider {
       }
     }
 
-    await this.enqueueRemoteOp(
-      () => this.adapter.writeFile(remotePath, content),
-      `writeFile:${remotePath}`,
-    );
-    // Update cache
+    // Write to local cache only — upload is handled by syncToRemote (⬆️ command)
+    // This ensures Ctrl+S never triggers an upload; the upload flow properly
+    // checks conflicts via syncCommands.syncToRemote() before uploading.
     await this.cacheManager.writeCache(this.connectionId, remotePath, content);
 
     // Notify file change
