@@ -231,18 +231,9 @@ describe('Core Types', () => {
       expect(result.hasConflict).to.be.false;
     });
 
-    it('should indicate conflict with timestamps', () => {
-      const remoteMtime = new Date('2024-01-01T00:00:00Z');
-      const localMtime = new Date('2024-01-01T01:00:00Z');
-      const result: ConflictResult = {
-        hasConflict: true,
-        remoteMtime,
-        localMtime,
-      };
-
+    it('should indicate conflict with hasConflict: true', () => {
+      const result: ConflictResult = { hasConflict: true };
       expect(result.hasConflict).to.be.true;
-      expect(result.remoteMtime).to.equal(remoteMtime);
-      expect(result.localMtime).to.equal(localMtime);
     });
   });
 });

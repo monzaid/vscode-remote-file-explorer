@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs/promises';
+import * as crypto from 'crypto';
 import { LocalCacheStat } from './types';
 
 /**
@@ -105,7 +106,7 @@ export class LocalCacheManager implements vscode.Disposable {
   }
 
   /**
-   * Write content to the local cache.
+   * Write content to the local cache. Also writes the SHA-256 hash.
    */
   async writeCache(connectionId: string, remotePath: string, content: Uint8Array): Promise<void> {
     const cachePath = this.getCachePath(connectionId, remotePath);
@@ -118,8 +119,34 @@ export class LocalCacheManager implements vscode.Disposable {
     await fs.mkdir(path.dirname(cachePath), { recursive: true });
     await fs.writeFile(cachePath, content);
 
+    // Write content hash for conflict detection
+    await this.writeHash(connectionId, remotePath, content);
+
     // P0-2: Update memory-side counter
     this.currentCacheSize += content.byteLength;
+  }
+
+  /**
+   * Write SHA-256 hash of content to a sidecar file (.hash).
+   */
+  async writeHash(connectionId: string, remotePath: string, content: Uint8Array): Promise<void> {
+    const cachePath = this.getCachePath(connectionId, remotePath);
+    const hashPath = cachePath + '.hash';
+    const hash = crypto.createHash('sha256').update(content).digest('hex');
+    await fs.mkdir(path.dirname(hashPath), { recursive: true });
+    await fs.writeFile(hashPath, hash, 'utf-8');
+  }
+
+  /**
+   * Read stored SHA-256 hash for a file. Returns null if not cached.
+   */
+  async readHash(connectionId: string, remotePath: string): Promise<string | null> {
+    try {
+      const cachePath = this.getCachePath(connectionId, remotePath);
+      return await fs.readFile(cachePath + '.hash', 'utf-8');
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -132,7 +159,7 @@ export class LocalCacheManager implements vscode.Disposable {
   }
 
   /**
-   * Delete a single cached file.
+   * Delete a single cached file and its hash sidecar.
    */
   async deleteCache(connectionId: string, remotePath: string): Promise<void> {
     try {
@@ -147,6 +174,8 @@ export class LocalCacheManager implements vscode.Disposable {
       }
 
       await fs.unlink(cachePath);
+      // Also delete hash sidecar if it exists
+      try { await fs.unlink(cachePath + '.hash'); } catch { /* ok if missing */ }
     } catch {
       // File may not exist — that's fine
     }

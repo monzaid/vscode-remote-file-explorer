@@ -1,22 +1,25 @@
 import * as vscode from 'vscode';
 import * as os from 'os';
 import * as path from 'path';
+import * as crypto from 'crypto';
 import { IProtocolAdapter } from '../core/IProtocolAdapter';
+import { LocalCacheManager } from '../core/LocalCacheManager';
 import { ConflictResult, ConflictAction } from '../core/types';
 
 /**
  * Detects and resolves file conflicts between local cache and remote server.
- * Provides 3 options per mode:
+ * Uses content hash (SHA-256) for detection — no timestamps, no clock issues.
  *   upload:   cancel-upload / force-overwrite / manual-merge
  *   download: download      / keep-local     / manual-merge
  */
 export class ConflictResolver {
   private adapter: IProtocolAdapter;
-  // TODO(P3-5): skipSet is in-memory only and lost on restart.
+  private cacheManager: LocalCacheManager;
   private skipSet: Map<string, Set<string>> = new Map();
 
-  constructor(adapter: IProtocolAdapter) {
+  constructor(adapter: IProtocolAdapter, cacheManager: LocalCacheManager) {
     this.adapter = adapter;
+    this.cacheManager = cacheManager;
   }
 
   private getSkipSet(connectionId: string): Set<string> {
@@ -28,24 +31,41 @@ export class ConflictResolver {
     return connSet;
   }
 
-  async checkConflict(
-    connectionId: string,
-    remotePath: string,
-    localMtime: Date,
-  ): Promise<ConflictResult> {
+  /**
+   * Check if local cache differs from remote using content hash.
+   * Stage 1 (fast): compare file sizes → Stage 2 (accurate): compare SHA-256 hashes.
+   */
+  async checkConflict(connectionId: string, remotePath: string): Promise<ConflictResult> {
     if (this.getSkipSet(connectionId).has(remotePath)) {
       return { hasConflict: false };
     }
     try {
+      // Stage 1: compare sizes (no download needed)
       const remoteStat = await this.adapter.stat(remotePath);
-      const remoteMtime = remoteStat.mtime;
-      // Only a conflict when remote is newer than local.
-      // If local > remote, the user just edited — no conflict, safe to upload/download.
-      if (remoteMtime.getTime() - localMtime.getTime() > 1000) {
-        return { hasConflict: true, remoteMtime, localMtime };
+      const cacheStat = await this.cacheManager.getCacheStat(connectionId, remotePath);
+
+      // No local cache → nothing to compare against → no conflict
+      if (!cacheStat.exists) {
+        return { hasConflict: false };
       }
+
+      // Stage 1: compare sizes (no download needed)
+      if (cacheStat.size !== remoteStat.size) {
+        return { hasConflict: true };
+      }
+
+      // Stage 2: sizes match — compare content hashes
+      const remoteContent = await this.adapter.readFile(remotePath);
+      const remoteHash = crypto.createHash('sha256').update(remoteContent).digest('hex');
+      const localHash = await this.cacheManager.readHash(connectionId, remotePath);
+
+      if (!localHash || remoteHash !== localHash) {
+        return { hasConflict: true };
+      }
+
       return { hasConflict: false };
     } catch {
+      // If remote stat/read fails (file deleted, etc.) — no conflict to resolve
       return { hasConflict: false };
     }
   }

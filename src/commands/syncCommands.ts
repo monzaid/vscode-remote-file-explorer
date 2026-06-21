@@ -53,14 +53,13 @@ export class SyncCommandHandler {
         }
       }
 
-      // Check local cache timestamp and compare with remote
+      // Check local cache and compare with remote via content hash
       const cacheStat = await this.cacheManager.getCacheStat(this.connectionId, remotePath);
 
-      if (cacheStat.exists && cacheStat.mtime) {
+      if (cacheStat.exists) {
         const conflict = await this.conflictResolver.checkConflict(
           this.connectionId,
           remotePath,
-          cacheStat.mtime,
         );
 
         if (conflict.hasConflict) {
@@ -157,13 +156,12 @@ export class SyncCommandHandler {
         return;
       }
 
-      // Check for conflicts
-      if (cacheStat.mtime) {
-        const conflict = await this.conflictResolver.checkConflict(
-          this.connectionId,
-          remotePath,
-          cacheStat.mtime,
-        );
+      // Check for conflicts using content hash
+      const conflict = await this.conflictResolver.checkConflict(
+        this.connectionId,
+        remotePath,
+      );
+      if (cacheStat.exists) {
 
         if (conflict.hasConflict) {
           const action = await this.conflictResolver.resolveConflict(remotePath, 'upload');

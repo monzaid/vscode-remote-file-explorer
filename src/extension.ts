@@ -136,7 +136,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           const protocol = connConfig?.protocol ?? 'ssh';
 
           // Register FileSystemProvider for this connection
-          const conflictResolver = new ConflictResolver(adapter);
+          const conflictResolver = new ConflictResolver(adapter, cacheManager);
           const remoteFsProvider = new RemoteFSProvider(
             event.connectionId,
             protocol,

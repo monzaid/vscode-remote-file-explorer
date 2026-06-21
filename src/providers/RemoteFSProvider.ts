@@ -259,11 +259,10 @@ export class RemoteFSProvider implements vscode.FileSystemProvider {
     // Check for conflicts if conflict resolver is available
     if (this.conflictResolver && !options.create) {
       const cacheStat = await this.cacheManager.getCacheStat(this.connectionId, remotePath);
-      if (cacheStat.exists && cacheStat.mtime) {
+      if (cacheStat.exists) {
         const conflictResult = await this.conflictResolver.checkConflict(
           this.connectionId,
           remotePath,
-          cacheStat.mtime,
         );
 
         if (conflictResult.hasConflict) {
