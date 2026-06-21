@@ -71,18 +71,21 @@ export class SyncCommandHandler {
             vscode.window.showInformationMessage('Kept local version.');
             return;
           } else if (action === 'manual-merge') {
-            // Open diff: download mode → Left=Local, Right=Remote
-            const result = await this.conflictResolver.openMergeDiff(
-              'download',
-              remotePath,
-              await this.adapter.readFile(remotePath),
-              vscode.Uri.parse(`${scheme}://${this.connectionId}${remotePath}`),
-            );
-            if (result !== 'accepted') {
-              vscode.window.showInformationMessage('Kept local version.');
-              return;
+            // Open diff editor: local cache vs remote
+            try {
+              const remoteContent = await this.adapter.readFile(remotePath);
+              const baseUri = await this.conflictResolver.writeRemoteTemp(remotePath, remoteContent);
+              const localUri = vscode.Uri.parse(`${scheme}://${this.connectionId}${remotePath}`);
+              await vscode.commands.executeCommand(
+                'vscode.diff',
+                localUri,
+                baseUri,
+                `Merge: ${remotePath.split('/').pop()} (Local ↔ Remote)`,
+              );
+            } catch (e) {
+              vscode.window.showErrorMessage(`Failed to open diff: ${e instanceof Error ? e.message : e}`);
             }
-            // Accepted: fall through to download & overwrite
+            return;
           }
           // Download & Overwrite: fall through
         } else {
@@ -170,20 +173,21 @@ export class SyncCommandHandler {
             vscode.window.showInformationMessage('Upload cancelled. Remote version kept.');
             return;
           } else if (action === 'manual-merge') {
-            // Open diff: upload mode → Left=Remote, Right=Local. Confirm upload via prompt.
-            const remoteContent = await this.adapter.readFile(remotePath);
-            const result = await this.conflictResolver.openMergeDiff(
-              'upload',
-              remotePath,
-              remoteContent,
-              vscode.Uri.parse(`${scheme}://${this.connectionId}${remotePath}`),
-              this.adapter,
-            );
-            if (result !== 'accepted') {
-              vscode.window.showInformationMessage('Upload cancelled. Remote version kept.');
-              return;
+            // Upload flow: Left=Remote (base on server), Right=Local (changes to push)
+            // Accept buttons move right→left, allowing partial incorporation of local changes.
+            try {
+              const remoteContent = await this.adapter.readFile(remotePath);
+              const baseUri = await this.conflictResolver.writeRemoteTemp(remotePath, remoteContent);
+              const localUri = vscode.Uri.parse(`${scheme}://${this.connectionId}${remotePath}`);
+              await vscode.commands.executeCommand(
+                'vscode.diff',
+                baseUri,
+                localUri,
+                `⬆ Merge: ${remotePath.split('/').pop()} (Remote ← Local)`,
+              );
+            } catch (e) {
+              vscode.window.showErrorMessage(`Failed to open diff: ${e instanceof Error ? e.message : e}`);
             }
-            vscode.window.showInformationMessage(`Uploaded: ${remotePath.split('/').pop()}`);
             return;
           }
           // force-overwrite: continue to upload

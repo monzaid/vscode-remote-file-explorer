@@ -134,6 +134,10 @@ async function activate(context) {
         // Register FileSystemProvider for each active connection
         // (will be dynamically registered when connections are established)
         const fsProviderDisposables = [];
+        // Create sync handlers Map NOW — shared reference between event callback and command deps.
+        // Must be created before setCommandDeps so commands see the same Map instance,
+        // even though handlers are added later when connections become active.
+        const syncHandlers = new Map();
         // Listen for connection status changes to register/unregister FS providers
         connectionManager.onConnectionStatusChange.on('statusChange', async (event) => {
             statusBarManager.updateStatus(event.status, connectionManager.getActiveCount());
@@ -158,8 +162,7 @@ async function activate(context) {
                     // Set up sync command handlers
                     const syncHandler = new syncCommands_1.SyncCommandHandler(event.connectionId, adapter, cacheManager, conflictResolver, protocol);
                     // Store sync handler reference for command use
-                    context.syncHandlers = context.syncHandlers || new Map();
-                    context.syncHandlers.set(event.connectionId, syncHandler);
+                    syncHandlers.set(event.connectionId, syncHandler);
                 }
             }
             if (event.status === 'disconnected' || event.status === 'error') {
@@ -174,7 +177,7 @@ async function activate(context) {
             sidebarProvider,
             cacheManager,
             searchEngine,
-            syncHandlers: context.syncHandlers,
+            syncHandlers,
         });
         // Register all commands
         const commandDisposables = (0, commandRegistry_1.registerAllCommands)(context);

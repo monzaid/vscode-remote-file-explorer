@@ -215,23 +215,27 @@ class RemoteFSProvider {
             if (cacheStat.exists && cacheStat.mtime) {
                 const conflictResult = await this.conflictResolver.checkConflict(this.connectionId, remotePath, cacheStat.mtime);
                 if (conflictResult.hasConflict) {
-                    const action = await this.conflictResolver.resolveConflict(remotePath);
+                    const action = await this.conflictResolver.resolveConflict(remotePath, 'upload');
                     if (action === 'keep-remote') {
-                        // Download remote version instead
-                        const remoteContent = await this.enqueueRemoteOp(() => this.adapter.readFile(remotePath), `readFile:${remotePath}`);
-                        await this.cacheManager.writeCache(this.connectionId, remotePath, remoteContent);
+                        // Cancel write — keep remote version
                         return;
                     }
                     else if (action === 'manual-merge') {
-                        // Open diff editor — don't write
-                        return;
+                        // Open diff for review (upload mode: Left=Remote, Right=Local).
+                        // No upload happens here — only cache write if accepted below.
+                        const remoteContent = await this.enqueueRemoteOp(() => this.adapter.readFile(remotePath), `readFile:${remotePath}`);
+                        const result = await this.conflictResolver.openMergeDiff('upload', remotePath, remoteContent, uri);
+                        if (result !== 'accepted')
+                            return;
+                        // Accepted: fall through to cache write below
                     }
                     // force-overwrite: fall through to write
                 }
             }
         }
-        await this.enqueueRemoteOp(() => this.adapter.writeFile(remotePath, content), `writeFile:${remotePath}`);
-        // Update cache
+        // Write to local cache only — upload is handled by syncToRemote (⬆️ command)
+        // This ensures Ctrl+S never triggers an upload; the upload flow properly
+        // checks conflicts via syncCommands.syncToRemote() before uploading.
         await this.cacheManager.writeCache(this.connectionId, remotePath, content);
         // Notify file change
         this._onDidChangeFile.fire([{ type: vscode.FileChangeType.Changed, uri }]);
