@@ -116,6 +116,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // (will be dynamically registered when connections are established)
     const fsProviderDisposables: vscode.Disposable[] = [];
 
+    // Create sync handlers Map NOW — shared reference between event callback and command deps.
+    // Must be created before setCommandDeps so commands see the same Map instance,
+    // even though handlers are added later when connections become active.
+    const syncHandlers = new Map<string, SyncCommandHandler>();
+
     // Listen for connection status changes to register/unregister FS providers
     connectionManager.onConnectionStatusChange.on('statusChange', async (event: { connectionId: string; status: string }) => {
       statusBarManager.updateStatus(
@@ -165,8 +170,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             protocol,
           );
           // Store sync handler reference for command use
-          (context as any).syncHandlers = (context as any).syncHandlers || new Map();
-          (context as any).syncHandlers.set(event.connectionId, syncHandler);
+          syncHandlers.set(event.connectionId, syncHandler);
         }
       }
 
@@ -183,7 +187,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       sidebarProvider,
       cacheManager,
       searchEngine,
-      syncHandlers: (context as any).syncHandlers as Map<string, SyncCommandHandler> | undefined,
+      syncHandlers,
     });
 
     // Register all commands
