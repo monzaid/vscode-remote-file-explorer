@@ -1,26 +1,22 @@
 import { IProtocolAdapter } from '../core/IProtocolAdapter';
 import { LocalCacheManager } from '../core/LocalCacheManager';
-import { ConflictResolver } from '../providers/ConflictResolver';
 /**
  * Handles inline button commands: ⬇️ Update (sync from remote) and ⬆️ Upload (sync to remote).
  */
 export declare class SyncCommandHandler {
     private adapter;
     private cacheManager;
-    private conflictResolver;
     private connectionId;
     private protocol;
-    constructor(connectionId: string, adapter: IProtocolAdapter, cacheManager: LocalCacheManager, conflictResolver: ConflictResolver, protocol: string);
+    constructor(connectionId: string, adapter: IProtocolAdapter, cacheManager: LocalCacheManager, protocol: string);
     /**
      * ⬇️ Download: Sync file from remote to local cache.
-     * Uses content hash for conflict detection.
      */
     syncFromRemote(remotePath: string): Promise<void>;
-    private refreshEditor;
     /**
      * ⬆️ Upload: Sync local file to remote.
-     * Checks for conflicts before uploading.
      */
     syncToRemote(remotePath: string): Promise<void>;
+    private refreshEditor;
 }
 //# sourceMappingURL=syncCommands.d.ts.map

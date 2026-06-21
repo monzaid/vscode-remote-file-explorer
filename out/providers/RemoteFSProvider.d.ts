@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import { IProtocolAdapter } from '../core/IProtocolAdapter';
 import { LocalCacheManager } from '../core/LocalCacheManager';
-import { ConflictResolver } from './ConflictResolver';
 import { ConcurrencyController } from '../core/ConcurrencyController';
 /**
  * VSCode FileSystemProvider implementation for remote file systems.
@@ -15,7 +14,6 @@ export declare class RemoteFSProvider implements vscode.FileSystemProvider {
     private protocol;
     private adapter;
     private cacheManager;
-    private conflictResolver?;
     private concurrencyController?;
     private static maxFileSize;
     private static warnFileSize;
@@ -31,7 +29,7 @@ export declare class RemoteFSProvider implements vscode.FileSystemProvider {
      * Sets up a configuration change listener to keep cached values current.
      */
     static initConfig(context: vscode.ExtensionContext): void;
-    constructor(connectionId: string, protocol: string, adapter: IProtocolAdapter, cacheManager: LocalCacheManager, conflictResolver?: ConflictResolver, concurrencyController?: ConcurrencyController);
+    constructor(connectionId: string, protocol: string, adapter: IProtocolAdapter, cacheManager: LocalCacheManager, concurrencyController?: ConcurrencyController);
     /**
      * Parse remote URI to extract path.
      * URI format: remote-{protocol}://connection-id/path/to/file
@@ -55,9 +53,10 @@ export declare class RemoteFSProvider implements vscode.FileSystemProvider {
      */
     readFile(uri: vscode.Uri): Promise<Uint8Array>;
     /**
-     * Write file contents. Checks for conflicts first.
+     * Write file contents to local cache only (Ctrl+S).
+     * Upload is handled separately by syncToRemote (⬆️ command).
      */
-    writeFile(uri: vscode.Uri, content: Uint8Array, options: {
+    writeFile(uri: vscode.Uri, content: Uint8Array, _options: {
         readonly create: boolean;
         readonly overwrite: boolean;
     }): Promise<void>;

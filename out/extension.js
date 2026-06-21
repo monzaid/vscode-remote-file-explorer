@@ -42,7 +42,6 @@ const LocalCacheManager_1 = require("./core/LocalCacheManager");
 const StatusBarManager_1 = require("./ui/StatusBarManager");
 const SidebarProvider_1 = require("./providers/SidebarProvider");
 const RemoteFSProvider_1 = require("./providers/RemoteFSProvider");
-const ConflictResolver_1 = require("./providers/ConflictResolver");
 const TerminalManager_1 = require("./terminal/TerminalManager");
 const SearchEngine_1 = require("./search/SearchEngine");
 const SSHAdapter_1 = require("./adapters/SSHAdapter");
@@ -148,8 +147,7 @@ async function activate(context) {
                     const connConfig = await connectionManager.getConnection(event.connectionId);
                     const protocol = connConfig?.protocol ?? 'ssh';
                     // Register FileSystemProvider for this connection
-                    const conflictResolver = new ConflictResolver_1.ConflictResolver(adapter, cacheManager);
-                    const remoteFsProvider = new RemoteFSProvider_1.RemoteFSProvider(event.connectionId, protocol, adapter, cacheManager, conflictResolver, concurrencyController);
+                    const remoteFsProvider = new RemoteFSProvider_1.RemoteFSProvider(event.connectionId, protocol, adapter, cacheManager, concurrencyController);
                     const scheme = RemoteFSProvider_1.RemoteFSProvider.schemeFor(protocol);
                     const fsDisposable = vscode.workspace.registerFileSystemProvider(scheme, remoteFsProvider, {
                         isCaseSensitive: true,
@@ -160,7 +158,7 @@ async function activate(context) {
                     // Register adapter with sidebar
                     sidebarProvider.registerAdapter(event.connectionId, adapter);
                     // Set up sync command handlers
-                    const syncHandler = new syncCommands_1.SyncCommandHandler(event.connectionId, adapter, cacheManager, conflictResolver, protocol);
+                    const syncHandler = new syncCommands_1.SyncCommandHandler(event.connectionId, adapter, cacheManager, protocol);
                     // Store sync handler reference for command use
                     syncHandlers.set(event.connectionId, syncHandler);
                 }
