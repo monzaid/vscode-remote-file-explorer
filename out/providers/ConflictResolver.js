@@ -37,22 +37,18 @@ exports.ConflictResolver = void 0;
 const vscode = __importStar(require("vscode"));
 const os = __importStar(require("os"));
 const path = __importStar(require("path"));
+const crypto = __importStar(require("crypto"));
 /**
  * Detects and resolves file conflicts between local cache and remote server.
- *
- * Conflict dialog uses showWarningMessage (modal) for its three options.
- * Manual-merge opens a vscode.diff editor with orientation matching the mode:
- *
- *   upload:   Left = Remote (base),  Right = Local (changes to upload)
- *   download: Left = Local  (base),  Right = Remote (changes to download)
- *
- * After the diff editor closes, a follow-up prompt lets the user accept
- * the relevant side or cancel.
+ * Uses content hash (SHA-256) for detection — no timestamps, no clock issues.
+ *   upload:   cancel-upload / force-overwrite / manual-merge
+ *   download: download      / keep-local     / manual-merge
  */
 class ConflictResolver {
-    constructor(adapter) {
+    constructor(adapter, cacheManager) {
         this.skipSet = new Map();
         this.adapter = adapter;
+        this.cacheManager = cacheManager;
     }
     getSkipSet(connectionId) {
         let connSet = this.skipSet.get(connectionId);
@@ -62,15 +58,35 @@ class ConflictResolver {
         }
         return connSet;
     }
-    async checkConflict(connectionId, remotePath, localMtime) {
+    /**
+     * Check if local cache conflicts with remote using content hash.
+     * Compares remote hash vs baseline hash (.base), and also detects
+     * local edits (current hash ≠ baseline) even when remote is unchanged.
+     */
+    async checkConflict(connectionId, remotePath) {
         if (this.getSkipSet(connectionId).has(remotePath)) {
             return { hasConflict: false };
         }
         try {
-            const remoteStat = await this.adapter.stat(remotePath);
-            const timeDiff = Math.abs(remoteStat.mtime.getTime() - localMtime.getTime());
-            if (timeDiff > 1000) {
-                return { hasConflict: true, remoteMtime: remoteStat.mtime, localMtime };
+            const cacheStat = await this.cacheManager.getCacheStat(connectionId, remotePath);
+            if (!cacheStat.exists) {
+                return { hasConflict: false };
+            }
+            const remoteContent = await this.adapter.readFile(remotePath);
+            const remoteHash = crypto.createHash('sha256').update(remoteContent).digest('hex');
+            const baseHash = await this.cacheManager.readRemoteBaseHash(connectionId, remotePath);
+            // No baseline → first sync → no conflict
+            if (!baseHash) {
+                return { hasConflict: false };
+            }
+            // Remote changed → conflict
+            if (remoteHash !== baseHash) {
+                return { hasConflict: true };
+            }
+            // Remote unchanged, but local has been edited → conflict (only for download flow)
+            const localHash = await this.cacheManager.readLocalHash(connectionId, remotePath);
+            if (localHash && localHash !== baseHash) {
+                return { hasConflict: true };
             }
             return { hasConflict: false };
         }
@@ -79,64 +95,35 @@ class ConflictResolver {
         }
     }
     /**
-     * Show conflict resolution dialog with three buttons.
-     * Mode controls the button labels:
-     *   upload:   Cancel Upload | Force Overwrite | Manual Merge
-     *   download: Keep Local   | Download & Overwrite | Manual Merge
+     * Present conflict resolution dialog.
+     * Uses showWarningMessage for consistency with the dirty-file prompt style.
+     *
+     * @param remotePath  The conflicting file path
+     * @param mode        'upload' or 'download' — changes the option labels
      */
     async resolveConflict(remotePath, mode = 'upload') {
         const fileName = remotePath.split('/').pop() || remotePath;
-        const [btn1, btn2, btn3] = mode === 'upload'
-            ? ['Cancel Upload', 'Force Overwrite', 'Manual Merge']
-            : ['Keep Local', 'Download & Overwrite', 'Manual Merge'];
-        const choice = await vscode.window.showWarningMessage(`Conflict: "${fileName}" was modified on the server since your last ${mode}.`, { modal: true }, btn1, btn2, btn3);
-        if (choice === btn1)
-            return 'keep-remote';
-        if (choice === btn2)
-            return 'force-overwrite';
-        if (choice === btn3)
-            return 'manual-merge';
-        // Dismissed: safe default
-        return 'keep-remote';
+        const choice = mode === 'upload'
+            ? await vscode.window.showWarningMessage(`Conflict: "${fileName}" has been modified on the server. Upload anyway?`, { modal: true }, '暂不上传', 'Force Overwrite', 'Manual Merge')
+            : await vscode.window.showWarningMessage(`Conflict: "${fileName}" differs from the server version.`, { modal: true }, 'Download & Overwrite', 'Keep Local', 'Manual Merge');
+        switch (choice) {
+            case '暂不上传':
+            case 'Keep Local':
+                return 'keep-remote';
+            case 'Force Overwrite':
+            case 'Download & Overwrite':
+                return 'force-overwrite';
+            case 'Manual Merge':
+                return 'manual-merge';
+            default:
+                return 'keep-remote';
+        }
     }
     /**
-     * Open a diff editor with correct left/right orientation and a follow-up
-     * acceptance prompt. Returns the user's final decision.
-     *
-     * @param mode        'upload' or 'download' — controls L/R ordering and labels
-     * @param remotePath  The server-side file path (used for labels)
-     * @param remoteContent  The server-side file content
-     * @param localUri    URI for the local cache file (remote-* scheme)
-     * @param adapter     Optional — if provided, 'accept' will push the result
-     * @returns 'accepted' | 'cancelled'
+     * Write remote content to a temp file and return its file:// URI.
+     * Used by Diff editors so VSCode reads it as a local file,
+     * avoiding the RemoteFSProvider path (which would try to stat on the server).
      */
-    async openMergeDiff(mode, remotePath, remoteContent, localUri, adapter) {
-        const fileName = remotePath.split('/').pop() || remotePath;
-        const baseUri = await this.writeRemoteTemp(remotePath, remoteContent);
-        // Orientation:
-        //   upload:   show what's on server (left) vs what I'm about to upload (right)
-        //   download: show what I have (left) vs what's on server (right)
-        const [leftUri, rightUri, leftLabel, rightLabel] = mode === 'upload'
-            ? [baseUri, localUri, 'Remote (server)', 'Local (your changes)']
-            : [localUri, baseUri, 'Local (cache)', 'Remote (server)'];
-        const title = `Merge: ${fileName} (${leftLabel} ↔ ${rightLabel})`;
-        await vscode.commands.executeCommand('vscode.diff', leftUri, rightUri, title);
-        // Post-diff: ask user to accept a side
-        const [acceptLabel, cancelLabel] = mode === 'upload'
-            ? ['Accept Local & Upload', 'Keep Remote & Cancel']
-            : ['Accept Remote & Download', 'Keep Local & Cancel'];
-        const action = await vscode.window.showWarningMessage(`Merge complete for "${fileName}". Choose how to proceed:`, { modal: true }, acceptLabel, cancelLabel);
-        if (action === acceptLabel) {
-            if (mode === 'upload' && adapter) {
-                // Upload local cache to remote
-                const cacheContent = await vscode.workspace.fs.readFile(localUri);
-                await adapter.writeFile(remotePath, cacheContent);
-            }
-            return 'accepted';
-        }
-        return 'cancelled';
-    }
-    /** Write content to a temp file and return its file:// URI (for diff right side). */
     async writeRemoteTemp(remotePath, content) {
         const tmpDir = os.tmpdir();
         const safeName = remotePath.replace(/[/\\:]/g, '_') + '.remote-base';

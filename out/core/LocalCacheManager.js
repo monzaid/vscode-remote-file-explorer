@@ -37,6 +37,7 @@ exports.LocalCacheManager = void 0;
 const vscode = __importStar(require("vscode"));
 const path = __importStar(require("path"));
 const fs = __importStar(require("fs/promises"));
+const crypto = __importStar(require("crypto"));
 /**
  * Manages local file caching for remote files.
  * Cache directory: globalStorageUri/cache/{connection-id}/{remote-path}
@@ -125,7 +126,7 @@ class LocalCacheManager {
         }
     }
     /**
-     * Write content to the local cache.
+     * Write content to the local cache. Also writes the SHA-256 hash.
      */
     async writeCache(connectionId, remotePath, content) {
         const cachePath = this.getCachePath(connectionId, remotePath);
@@ -135,8 +136,56 @@ class LocalCacheManager {
         }
         await fs.mkdir(path.dirname(cachePath), { recursive: true });
         await fs.writeFile(cachePath, content);
+        // Write local content hash for cache integrity
+        await this.writeLocalHash(connectionId, remotePath, content);
         // P0-2: Update memory-side counter
         this.currentCacheSize += content.byteLength;
+    }
+    /**
+     * Write SHA-256 hash of content to a sidecar file (.localhash).
+     */
+    async writeLocalHash(connectionId, remotePath, content) {
+        const cachePath = this.getCachePath(connectionId, remotePath);
+        const hashPath = cachePath + '.localhash';
+        const hash = crypto.createHash('sha256').update(content).digest('hex');
+        await fs.mkdir(path.dirname(hashPath), { recursive: true });
+        await fs.writeFile(hashPath, hash, 'utf-8');
+    }
+    /**
+     * Read stored SHA-256 local hash. Returns null if not cached.
+     */
+    async readLocalHash(connectionId, remotePath) {
+        try {
+            const cachePath = this.getCachePath(connectionId, remotePath);
+            return await fs.readFile(cachePath + '.localhash', 'utf-8');
+        }
+        catch {
+            return null;
+        }
+    }
+    /**
+     * Write remote baseline hash (.remotebasehash) — records the last-known remote hash.
+     * Only written after download/sync/upload, NOT on local save (Ctrl+S).
+     * This is the reference for conflict detection.
+     */
+    async writeRemoteBaseHash(connectionId, remotePath, content) {
+        const cachePath = this.getCachePath(connectionId, remotePath);
+        const basePath = cachePath + '.remotebasehash';
+        const hash = crypto.createHash('sha256').update(content).digest('hex');
+        await fs.mkdir(path.dirname(basePath), { recursive: true });
+        await fs.writeFile(basePath, hash, 'utf-8');
+    }
+    /**
+     * Read remote baseline hash. Returns null if never synced.
+     */
+    async readRemoteBaseHash(connectionId, remotePath) {
+        try {
+            const cachePath = this.getCachePath(connectionId, remotePath);
+            return await fs.readFile(cachePath + '.remotebasehash', 'utf-8');
+        }
+        catch {
+            return null;
+        }
     }
     /**
      * Read content from the local cache.
@@ -147,7 +196,7 @@ class LocalCacheManager {
         return new Uint8Array(buffer);
     }
     /**
-     * Delete a single cached file.
+     * Delete a single cached file and its hash sidecar.
      */
     async deleteCache(connectionId, remotePath) {
         try {
@@ -161,6 +210,15 @@ class LocalCacheManager {
                 // File may not exist — that's fine
             }
             await fs.unlink(cachePath);
+            // Also delete hash and base sidecar files
+            try {
+                await fs.unlink(cachePath + '.localhash');
+            }
+            catch { /* ok if missing */ }
+            try {
+                await fs.unlink(cachePath + '.remotebasehash');
+            }
+            catch { /* ok if missing */ }
         }
         catch {
             // File may not exist — that's fine

@@ -2,7 +2,6 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { IProtocolAdapter } from '../core/IProtocolAdapter';
 import { LocalCacheManager } from '../core/LocalCacheManager';
-import { ConflictResolver } from './ConflictResolver';
 import { ConcurrencyController } from '../core/ConcurrencyController';
 import { RemoteFileStat } from '../core/types';
 
@@ -19,7 +18,6 @@ export class RemoteFSProvider implements vscode.FileSystemProvider {
   private protocol: string;
   private adapter: IProtocolAdapter;
   private cacheManager: LocalCacheManager;
-  private conflictResolver?: ConflictResolver;
   private concurrencyController?: ConcurrencyController;
 
   // Static cached configuration values — initialized once and updated via listener
@@ -85,14 +83,12 @@ export class RemoteFSProvider implements vscode.FileSystemProvider {
     protocol: string,
     adapter: IProtocolAdapter,
     cacheManager: LocalCacheManager,
-    conflictResolver?: ConflictResolver,
     concurrencyController?: ConcurrencyController,
   ) {
     this.connectionId = connectionId;
     this.protocol = protocol;
     this.adapter = adapter;
     this.cacheManager = cacheManager;
-    this.conflictResolver = conflictResolver;
     this.concurrencyController = concurrencyController;
   }
 
@@ -241,70 +237,23 @@ export class RemoteFSProvider implements vscode.FileSystemProvider {
     // Only cache files under maxFileSize
     if (remoteStat.size <= RemoteFSProvider.maxFileSize) {
       await this.cacheManager.writeCache(this.connectionId, remotePath, content);
-      // Record baseline hash — this content is now the known remote state
-      await this.cacheManager.writeRemoteBaseHash(this.connectionId, remotePath, content);
     }
 
     return content;
   }
 
   /**
-   * Write file contents. Checks for conflicts first.
+   * Write file contents to local cache only (Ctrl+S).
+   * Upload is handled separately by syncToRemote (⬆️ command).
    */
   async writeFile(
     uri: vscode.Uri,
     content: Uint8Array,
-    options: { readonly create: boolean; readonly overwrite: boolean },
+    _options: { readonly create: boolean; readonly overwrite: boolean },
   ): Promise<void> {
     const { remotePath } = this.parseUri(uri);
 
-    // Check for conflicts if conflict resolver is available
-    if (this.conflictResolver && !options.create) {
-      const cacheStat = await this.cacheManager.getCacheStat(this.connectionId, remotePath);
-      if (cacheStat.exists) {
-        const conflictResult = await this.conflictResolver.checkConflict(
-          this.connectionId,
-          remotePath,
-        );
-
-        if (conflictResult.hasConflict) {
-          const action = await this.conflictResolver.resolveConflict(remotePath, 'upload');
-          if (action === 'keep-remote') {
-            // Cancel write — keep remote version
-            return;
-          } else if (action === 'manual-merge') {
-            // Open diff editor: local cache vs remote via temp file (avoid RemoteFS route)
-            try {
-              const remoteContent = await this.enqueueRemoteOp(
-                () => this.adapter.readFile(remotePath),
-                `readFile:${remotePath}`,
-              );
-              const baseUri = await this.conflictResolver.writeRemoteTemp(remotePath, remoteContent);
-              const localUri = this.adapter ? vscode.Uri.parse(
-                `remote-${this.protocol}://${this.connectionId}${remotePath}`
-              ) : uri;
-              await vscode.commands.executeCommand(
-                'vscode.diff',
-                baseUri,
-                localUri,
-                `Merge: ${remotePath.split('/').pop()} (Remote ⇿ Local)`,
-              );
-            } catch (e) {
-              vscode.window.showErrorMessage(`Failed to open diff: ${e instanceof Error ? e.message : e}`);
-            }
-            return;
-          }
-          // force-overwrite: fall through to write
-        }
-      }
-    }
-
-    // Write to local cache only — upload is handled by syncToRemote (⬆️ command)
-    // This ensures Ctrl+S never triggers an upload; the upload flow properly
-    // checks conflicts via syncCommands.syncToRemote() before uploading.
     await this.cacheManager.writeCache(this.connectionId, remotePath, content);
-
-    // Notify file change
     this._onDidChangeFile.fire([{ type: vscode.FileChangeType.Changed, uri }]);
   }
 

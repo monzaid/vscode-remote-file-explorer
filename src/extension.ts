@@ -5,7 +5,6 @@ import { LocalCacheManager } from './core/LocalCacheManager';
 import { StatusBarManager } from './ui/StatusBarManager';
 import { SidebarProvider } from './providers/SidebarProvider';
 import { RemoteFSProvider } from './providers/RemoteFSProvider';
-import { ConflictResolver } from './providers/ConflictResolver';
 import { TerminalManager } from './terminal/TerminalManager';
 import { SearchEngine } from './search/SearchEngine';
 import { SSHAdapter } from './adapters/SSHAdapter';
@@ -136,13 +135,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           const protocol = connConfig?.protocol ?? 'ssh';
 
           // Register FileSystemProvider for this connection
-          const conflictResolver = new ConflictResolver(adapter, cacheManager);
           const remoteFsProvider = new RemoteFSProvider(
             event.connectionId,
             protocol,
             adapter,
             cacheManager,
-            conflictResolver,
             concurrencyController,
           );
 
@@ -166,7 +163,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             event.connectionId,
             adapter,
             cacheManager,
-            conflictResolver,
             protocol,
           );
           // Store sync handler reference for command use

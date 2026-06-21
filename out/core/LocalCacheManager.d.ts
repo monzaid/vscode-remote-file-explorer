@@ -32,15 +32,33 @@ export declare class LocalCacheManager implements vscode.Disposable {
      */
     getCacheStat(connectionId: string, remotePath: string): Promise<LocalCacheStat>;
     /**
-     * Write content to the local cache.
+     * Write content to the local cache. Also writes the SHA-256 hash.
      */
     writeCache(connectionId: string, remotePath: string, content: Uint8Array): Promise<void>;
+    /**
+     * Write SHA-256 hash of content to a sidecar file (.localhash).
+     */
+    writeLocalHash(connectionId: string, remotePath: string, content: Uint8Array): Promise<void>;
+    /**
+     * Read stored SHA-256 local hash. Returns null if not cached.
+     */
+    readLocalHash(connectionId: string, remotePath: string): Promise<string | null>;
+    /**
+     * Write remote baseline hash (.remotebasehash) — records the last-known remote hash.
+     * Only written after download/sync/upload, NOT on local save (Ctrl+S).
+     * This is the reference for conflict detection.
+     */
+    writeRemoteBaseHash(connectionId: string, remotePath: string, content: Uint8Array): Promise<void>;
+    /**
+     * Read remote baseline hash. Returns null if never synced.
+     */
+    readRemoteBaseHash(connectionId: string, remotePath: string): Promise<string | null>;
     /**
      * Read content from the local cache.
      */
     readCache(connectionId: string, remotePath: string): Promise<Uint8Array>;
     /**
-     * Delete a single cached file.
+     * Delete a single cached file and its hash sidecar.
      */
     deleteCache(connectionId: string, remotePath: string): Promise<void>;
     /**

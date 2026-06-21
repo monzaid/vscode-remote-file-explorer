@@ -71,11 +71,9 @@ export interface ShellSession {
     resize: (cols: number, rows: number) => void;
     dispose: () => void;
 }
-/** Conflict detection result */
+/** Conflict detection result — uses content hash, not timestamps */
 export interface ConflictResult {
     hasConflict: boolean;
-    remoteMtime?: Date;
-    localMtime?: Date;
 }
 /** Local cache file stat */
 export interface LocalCacheStat {

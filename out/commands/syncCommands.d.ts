@@ -13,9 +13,10 @@ export declare class SyncCommandHandler {
     constructor(connectionId: string, adapter: IProtocolAdapter, cacheManager: LocalCacheManager, conflictResolver: ConflictResolver, protocol: string);
     /**
      * ⬇️ Download: Sync file from remote to local cache.
-     * Compares timestamps; shows conflict dialog when remote differs.
+     * Uses content hash for conflict detection.
      */
     syncFromRemote(remotePath: string): Promise<void>;
+    private refreshEditor;
     /**
      * ⬆️ Upload: Sync local file to remote.
      * Checks for conflicts before uploading.

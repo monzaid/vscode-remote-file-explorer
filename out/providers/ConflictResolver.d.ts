@@ -1,46 +1,38 @@
 import * as vscode from 'vscode';
 import { IProtocolAdapter } from '../core/IProtocolAdapter';
+import { LocalCacheManager } from '../core/LocalCacheManager';
 import { ConflictResult, ConflictAction } from '../core/types';
 /**
  * Detects and resolves file conflicts between local cache and remote server.
- *
- * Conflict dialog uses showWarningMessage (modal) for its three options.
- * Manual-merge opens a vscode.diff editor with orientation matching the mode:
- *
- *   upload:   Left = Remote (base),  Right = Local (changes to upload)
- *   download: Left = Local  (base),  Right = Remote (changes to download)
- *
- * After the diff editor closes, a follow-up prompt lets the user accept
- * the relevant side or cancel.
+ * Uses content hash (SHA-256) for detection — no timestamps, no clock issues.
+ *   upload:   cancel-upload / force-overwrite / manual-merge
+ *   download: download      / keep-local     / manual-merge
  */
 export declare class ConflictResolver {
     private adapter;
+    private cacheManager;
     private skipSet;
-    constructor(adapter: IProtocolAdapter);
+    constructor(adapter: IProtocolAdapter, cacheManager: LocalCacheManager);
     private getSkipSet;
-    checkConflict(connectionId: string, remotePath: string, localMtime: Date): Promise<ConflictResult>;
     /**
-     * Show conflict resolution dialog with three buttons.
-     * Mode controls the button labels:
-     *   upload:   Cancel Upload | Force Overwrite | Manual Merge
-     *   download: Keep Local   | Download & Overwrite | Manual Merge
+     * Check if local cache conflicts with remote using content hash.
+     * Compares remote hash vs baseline hash (.base), and also detects
+     * local edits (current hash ≠ baseline) even when remote is unchanged.
+     */
+    checkConflict(connectionId: string, remotePath: string): Promise<ConflictResult>;
+    /**
+     * Present conflict resolution dialog.
+     * Uses showWarningMessage for consistency with the dirty-file prompt style.
+     *
+     * @param remotePath  The conflicting file path
+     * @param mode        'upload' or 'download' — changes the option labels
      */
     resolveConflict(remotePath: string, mode?: 'upload' | 'download'): Promise<ConflictAction>;
     /**
-     * Open a diff editor with correct left/right orientation and a follow-up
-     * acceptance prompt. Returns the user's final decision.
-     *
-     * @param mode        'upload' or 'download' — controls L/R ordering and labels
-     * @param remotePath  The server-side file path (used for labels)
-     * @param remoteContent  The server-side file content
-     * @param localUri    URI for the local cache file (remote-* scheme)
-     * @param adapter     Optional — if provided, 'accept' will push the result
-     * @returns 'accepted' | 'cancelled'
+     * Write remote content to a temp file and return its file:// URI.
+     * Used by Diff editors so VSCode reads it as a local file,
+     * avoiding the RemoteFSProvider path (which would try to stat on the server).
      */
-    openMergeDiff(mode: 'upload' | 'download', remotePath: string, remoteContent: Uint8Array, localUri: vscode.Uri, adapter?: {
-        writeFile: (p: string, c: Uint8Array) => Promise<void>;
-    }): Promise<'accepted' | 'cancelled'>;
-    /** Write content to a temp file and return its file:// URI (for diff right side). */
     writeRemoteTemp(remotePath: string, content: Uint8Array): Promise<vscode.Uri>;
     /**
      * Skip conflict check for a specific file for this session.

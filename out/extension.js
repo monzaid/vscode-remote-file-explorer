@@ -148,7 +148,7 @@ async function activate(context) {
                     const connConfig = await connectionManager.getConnection(event.connectionId);
                     const protocol = connConfig?.protocol ?? 'ssh';
                     // Register FileSystemProvider for this connection
-                    const conflictResolver = new ConflictResolver_1.ConflictResolver(adapter);
+                    const conflictResolver = new ConflictResolver_1.ConflictResolver(adapter, cacheManager);
                     const remoteFsProvider = new RemoteFSProvider_1.RemoteFSProvider(event.connectionId, protocol, adapter, cacheManager, conflictResolver, concurrencyController);
                     const scheme = RemoteFSProvider_1.RemoteFSProvider.schemeFor(protocol);
                     const fsDisposable = vscode.workspace.registerFileSystemProvider(scheme, remoteFsProvider, {

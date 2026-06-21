@@ -201,6 +201,8 @@ class RemoteFSProvider {
         // Only cache files under maxFileSize
         if (remoteStat.size <= RemoteFSProvider.maxFileSize) {
             await this.cacheManager.writeCache(this.connectionId, remotePath, content);
+            // Record baseline hash — this content is now the known remote state
+            await this.cacheManager.writeRemoteBaseHash(this.connectionId, remotePath, content);
         }
         return content;
     }
@@ -212,8 +214,8 @@ class RemoteFSProvider {
         // Check for conflicts if conflict resolver is available
         if (this.conflictResolver && !options.create) {
             const cacheStat = await this.cacheManager.getCacheStat(this.connectionId, remotePath);
-            if (cacheStat.exists && cacheStat.mtime) {
-                const conflictResult = await this.conflictResolver.checkConflict(this.connectionId, remotePath, cacheStat.mtime);
+            if (cacheStat.exists) {
+                const conflictResult = await this.conflictResolver.checkConflict(this.connectionId, remotePath);
                 if (conflictResult.hasConflict) {
                     const action = await this.conflictResolver.resolveConflict(remotePath, 'upload');
                     if (action === 'keep-remote') {
@@ -221,13 +223,17 @@ class RemoteFSProvider {
                         return;
                     }
                     else if (action === 'manual-merge') {
-                        // Open diff for review (upload mode: Left=Remote, Right=Local).
-                        // No upload happens here — only cache write if accepted below.
-                        const remoteContent = await this.enqueueRemoteOp(() => this.adapter.readFile(remotePath), `readFile:${remotePath}`);
-                        const result = await this.conflictResolver.openMergeDiff('upload', remotePath, remoteContent, uri);
-                        if (result !== 'accepted')
-                            return;
-                        // Accepted: fall through to cache write below
+                        // Open diff editor: local cache vs remote via temp file (avoid RemoteFS route)
+                        try {
+                            const remoteContent = await this.enqueueRemoteOp(() => this.adapter.readFile(remotePath), `readFile:${remotePath}`);
+                            const baseUri = await this.conflictResolver.writeRemoteTemp(remotePath, remoteContent);
+                            const localUri = this.adapter ? vscode.Uri.parse(`remote-${this.protocol}://${this.connectionId}${remotePath}`) : uri;
+                            await vscode.commands.executeCommand('vscode.diff', baseUri, localUri, `Merge: ${remotePath.split('/').pop()} (Remote ⇿ Local)`);
+                        }
+                        catch (e) {
+                            vscode.window.showErrorMessage(`Failed to open diff: ${e instanceof Error ? e.message : e}`);
+                        }
+                        return;
                     }
                     // force-overwrite: fall through to write
                 }
