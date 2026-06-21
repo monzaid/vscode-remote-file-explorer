@@ -96,6 +96,7 @@ export class SyncCommandHandler {
       // Download from remote
       const content = await this.adapter.readFile(remotePath);
       await this.cacheManager.writeCache(this.connectionId, remotePath, content);
+      await this.cacheManager.writeBase(this.connectionId, remotePath, content);
 
       // Refresh open editors
       const fileName = remotePath.split('/').pop() || remotePath;
@@ -194,6 +195,8 @@ export class SyncCommandHandler {
       // Upload to remote
       const content = await this.cacheManager.readCache(this.connectionId, remotePath);
       await this.adapter.writeFile(remotePath, content);
+      // After successful upload, update baseline to match remote
+      await this.cacheManager.writeBase(this.connectionId, remotePath, content);
 
       const fileName = remotePath.split('/').pop();
       vscode.window.showInformationMessage(`Uploaded: ${fileName || remotePath}`);

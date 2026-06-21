@@ -45,20 +45,19 @@ class MockAdapter implements IProtocolAdapter {
  */
 class MockCacheManager {
   private _cacheSize: number = 1024;
-  private _hash: string | null = null;
+  private _baseHash: string | null = null;
   private _exists: boolean = true;
 
-  setHash(hash: string | null) { this._hash = hash; }
+  setBaseHash(hash: string | null) { this._baseHash = hash; }
   setCacheSize(size: number) { this._cacheSize = size; }
   setExists(exists: boolean) { this._exists = exists; }
 
   getCacheStat(): Promise<LocalCacheStat> {
-    return Promise.resolve({
-      exists: this._exists,
-      size: this._cacheSize,
-    });
+    return Promise.resolve({ exists: this._exists, size: this._cacheSize });
   }
-  readHash(): Promise<string | null> { return Promise.resolve(this._hash); }
+  readBase(): Promise<string | null> { return Promise.resolve(this._baseHash); }
+  readHash(): Promise<string | null> { return Promise.resolve(null); }
+  writeBase(): Promise<void> { return Promise.resolve(); }
   writeHash(): Promise<void> { return Promise.resolve(); }
   writeCache(): Promise<void> { return Promise.resolve(); }
 }
@@ -90,11 +89,11 @@ describe('ConflictResolver', () => {
       expect(resolver.checkConflict.length).to.equal(2);
     });
 
-    it('should return { hasConflict: false } when sizes match AND hashes match', async () => {
+    it('should return { hasConflict: false } when sizes match AND base matches remote', async () => {
       adapter.setRemoteSize(1024);
       cacheManager.setCacheSize(1024);
       adapter.setRemoteContent(new Uint8Array([1, 2, 3]));
-      cacheManager.setHash('039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81');
+      cacheManager.setBaseHash('039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81');
 
       const result = await resolver.checkConflict('conn-1', '/file.txt');
       expect(result.hasConflict).to.be.false;
@@ -108,14 +107,23 @@ describe('ConflictResolver', () => {
       expect(result.hasConflict).to.be.true;
     });
 
-    it('should return { hasConflict: true } when sizes match but hashes differ', async () => {
+    it('should return { hasConflict: true } when sizes match but base differs', async () => {
       adapter.setRemoteSize(1024);
       cacheManager.setCacheSize(1024);
       adapter.setRemoteContent(new Uint8Array([4, 5, 6]));
-      cacheManager.setHash('e58ed0d0a62f0dad3f89a61b204a1e61990ea2df831e47757dc88a21f808e070');
+      cacheManager.setBaseHash('039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81');
 
       const result = await resolver.checkConflict('conn-1', '/file.txt');
       expect(result.hasConflict).to.be.true;
+    });
+
+    it('should return { hasConflict: false } when no baseline (first sync)', async () => {
+      adapter.setRemoteSize(1024);
+      cacheManager.setCacheSize(1024);
+      cacheManager.setBaseHash(null);
+
+      const result = await resolver.checkConflict('conn-1', '/file.txt');
+      expect(result.hasConflict).to.be.false;
     });
 
     it('should return { hasConflict: false } when cache does not exist', async () => {

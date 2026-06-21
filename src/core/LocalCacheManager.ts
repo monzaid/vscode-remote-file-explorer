@@ -150,6 +150,31 @@ export class LocalCacheManager implements vscode.Disposable {
   }
 
   /**
+   * Write baseline hash (.base) — records the last-known remote hash.
+   * Only written after download/sync/upload, NOT on local save (Ctrl+S).
+   * This is the reference for conflict detection.
+   */
+  async writeBase(connectionId: string, remotePath: string, content: Uint8Array): Promise<void> {
+    const cachePath = this.getCachePath(connectionId, remotePath);
+    const basePath = cachePath + '.base';
+    const hash = crypto.createHash('sha256').update(content).digest('hex');
+    await fs.mkdir(path.dirname(basePath), { recursive: true });
+    await fs.writeFile(basePath, hash, 'utf-8');
+  }
+
+  /**
+   * Read baseline hash. Returns null if never synced.
+   */
+  async readBase(connectionId: string, remotePath: string): Promise<string | null> {
+    try {
+      const cachePath = this.getCachePath(connectionId, remotePath);
+      return await fs.readFile(cachePath + '.base', 'utf-8');
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Read content from the local cache.
    */
   async readCache(connectionId: string, remotePath: string): Promise<Uint8Array> {
@@ -174,8 +199,9 @@ export class LocalCacheManager implements vscode.Disposable {
       }
 
       await fs.unlink(cachePath);
-      // Also delete hash sidecar if it exists
+      // Also delete hash and base sidecar files
       try { await fs.unlink(cachePath + '.hash'); } catch { /* ok if missing */ }
+      try { await fs.unlink(cachePath + '.base'); } catch { /* ok if missing */ }
     } catch {
       // File may not exist — that's fine
     }

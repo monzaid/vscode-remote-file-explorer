@@ -54,12 +54,17 @@ export class ConflictResolver {
         return { hasConflict: true };
       }
 
-      // Stage 2: sizes match — compare content hashes
+      // Stage 2: sizes match — compare remote hash vs baseline hash
       const remoteContent = await this.adapter.readFile(remotePath);
       const remoteHash = crypto.createHash('sha256').update(remoteContent).digest('hex');
-      const localHash = await this.cacheManager.readHash(connectionId, remotePath);
+      const baseHash = await this.cacheManager.readBase(connectionId, remotePath);
 
-      if (!localHash || remoteHash !== localHash) {
+      // No baseline → first sync → no conflict
+      if (!baseHash) {
+        return { hasConflict: false };
+      }
+
+      if (remoteHash !== baseHash) {
         return { hasConflict: true };
       }
 

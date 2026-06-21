@@ -241,6 +241,8 @@ export class RemoteFSProvider implements vscode.FileSystemProvider {
     // Only cache files under maxFileSize
     if (remoteStat.size <= RemoteFSProvider.maxFileSize) {
       await this.cacheManager.writeCache(this.connectionId, remotePath, content);
+      // Record baseline hash — this content is now the known remote state
+      await this.cacheManager.writeBase(this.connectionId, remotePath, content);
     }
 
     return content;
