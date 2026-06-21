@@ -158,8 +158,22 @@ export class SyncCommandHandler {
             vscode.window.showInformationMessage('Kept remote version.');
             return;
           } else if (action === 'manual-merge') {
-            // Open diff — handled by ConflictResolver
-            vscode.window.showInformationMessage('Opening diff editor for manual merge.');
+            // Open diff editor: local cache vs remote
+            try {
+              const remoteContent = await this.adapter.readFile(remotePath);
+              const diffRemotePath = remotePath + '.remote-base';
+              await this.cacheManager.writeCache(this.connectionId, diffRemotePath, remoteContent);
+              const localUri = vscode.Uri.parse(`${scheme}://${this.connectionId}${remotePath}`);
+              const remoteDiffUri = vscode.Uri.parse(`${scheme}://${this.connectionId}${diffRemotePath}`);
+              await vscode.commands.executeCommand(
+                'vscode.diff',
+                localUri,
+                remoteDiffUri,
+                `Merge: ${remotePath.split('/').pop()} (Local ↔ Remote)`,
+              );
+            } catch (e) {
+              vscode.window.showErrorMessage(`Failed to open diff: ${e instanceof Error ? e.message : e}`);
+            }
             return;
           }
           // force-overwrite: continue to upload

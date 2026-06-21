@@ -277,7 +277,26 @@ export class RemoteFSProvider implements vscode.FileSystemProvider {
             await this.cacheManager.writeCache(this.connectionId, remotePath, remoteContent);
             return;
           } else if (action === 'manual-merge') {
-            // Open diff editor — don't write
+            // Open diff editor: local cache vs remote
+            try {
+              const remoteContent = await this.enqueueRemoteOp(
+                () => this.adapter.readFile(remotePath),
+                `readFile:${remotePath}`,
+              );
+              const diffRemotePath = remotePath + '.remote-base';
+              await this.cacheManager.writeCache(this.connectionId, diffRemotePath, remoteContent);
+              const scheme = `remote-${this.protocol}`;
+              const localUri = vscode.Uri.parse(`${scheme}://${this.connectionId}${remotePath}`);
+              const remoteUri = vscode.Uri.parse(`${scheme}://${this.connectionId}${diffRemotePath}`);
+              await vscode.commands.executeCommand(
+                'vscode.diff',
+                localUri,
+                remoteUri,
+                `Merge: ${remotePath.split('/').pop()} (Local ↔ Remote)`,
+              );
+            } catch (e) {
+              vscode.window.showErrorMessage(`Failed to open diff: ${e instanceof Error ? e.message : e}`);
+            }
             return;
           }
           // force-overwrite: fall through to write
