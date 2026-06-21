@@ -51,37 +51,33 @@ export class ConflictResolver {
 
   /**
    * Present conflict resolution dialog.
-   * Uses showWarningMessage { modal: true } — buttons are context-specific
-   * per mode so they're visually distinct from non-modal dirty-file prompts.
+   * Uses showWarningMessage for consistency with the dirty-file prompt style.
    *
    * @param remotePath  The conflicting file path
-   * @param mode        'upload' (⬆️) or 'download' (⬇️)
+   * @param mode        'upload' or 'download' — changes the option labels
    */
   async resolveConflict(remotePath: string, mode: 'upload' | 'download' = 'upload'): Promise<ConflictAction> {
     const fileName = remotePath.split('/').pop() || remotePath;
 
-    let choice: string | undefined;
-    if (mode === 'upload') {
-      choice = await vscode.window.showWarningMessage(
-        `⚠ Upload Conflict: "${fileName}" was modified on the server since your last download.\n\nYour upload would overwrite remote changes. Choose how to proceed:`,
-        { modal: true },
-        'Cancel Upload',
-        'Force Overwrite',
-        'Manual Merge',
-      );
-    } else {
-      choice = await vscode.window.showWarningMessage(
-        `⚠ Update Conflict: "${fileName}" was modified on the server.\n\nDownloading would overwrite your local version. Choose how to proceed:`,
-        { modal: true },
-        'Cancel',
-        'Download & Overwrite',
-        'Manual Merge',
-      );
-    }
+    const choice = mode === 'upload'
+      ? await vscode.window.showWarningMessage(
+          `Conflict: "${fileName}" has been modified on the server. Upload anyway?`,
+          { modal: true },
+          'Cancel Upload',
+          'Force Overwrite',
+          'Manual Merge',
+        )
+      : await vscode.window.showWarningMessage(
+          `Conflict: "${fileName}" differs from the server version.`,
+          { modal: true },
+          'Download & Overwrite',
+          'Keep Local',
+          'Manual Merge',
+        );
 
     switch (choice) {
       case 'Cancel Upload':
-      case 'Cancel':
+      case 'Keep Local':
         return 'keep-remote';
       case 'Force Overwrite':
       case 'Download & Overwrite':
@@ -89,7 +85,7 @@ export class ConflictResolver {
       case 'Manual Merge':
         return 'manual-merge';
       default:
-        return 'keep-remote';  // dismissed → safe default
+        return 'keep-remote';
     }
   }
 
