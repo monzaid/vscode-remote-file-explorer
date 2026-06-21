@@ -48,7 +48,7 @@ export class ConflictResolver {
 
       const remoteContent = await this.adapter.readFile(remotePath);
       const remoteHash = crypto.createHash('sha256').update(remoteContent).digest('hex');
-      const baseHash = await this.cacheManager.readBase(connectionId, remotePath);
+      const baseHash = await this.cacheManager.readRemoteBaseHash(connectionId, remotePath);
 
       // No baseline → first sync → no conflict
       if (!baseHash) {
@@ -61,7 +61,7 @@ export class ConflictResolver {
       }
 
       // Remote unchanged, but local has been edited → conflict (only for download flow)
-      const localHash = await this.cacheManager.readHash(connectionId, remotePath);
+      const localHash = await this.cacheManager.readLocalHash(connectionId, remotePath);
       if (localHash && localHash !== baseHash) {
         return { hasConflict: true };
       }
@@ -86,7 +86,7 @@ export class ConflictResolver {
       ? await vscode.window.showWarningMessage(
           `Conflict: "${fileName}" has been modified on the server. Upload anyway?`,
           { modal: true },
-          'Cancel Upload',
+          '暂不上传',
           'Force Overwrite',
           'Manual Merge',
         )
@@ -99,7 +99,7 @@ export class ConflictResolver {
         );
 
     switch (choice) {
-      case 'Cancel Upload':
+      case '暂不上传':
       case 'Keep Local':
         return 'keep-remote';
       case 'Force Overwrite':

@@ -57,10 +57,10 @@ class MockCacheManager {
   getCacheStat(): Promise<LocalCacheStat> {
     return Promise.resolve({ exists: this._exists, size: this._cacheSize });
   }
-  readBase(): Promise<string | null> { return Promise.resolve(this._baseHash); }
-  readHash(): Promise<string | null> { return Promise.resolve(this._localHash); }
-  writeBase(): Promise<void> { return Promise.resolve(); }
-  writeHash(): Promise<void> { return Promise.resolve(); }
+  readRemoteBaseHash(): Promise<string | null> { return Promise.resolve(this._baseHash); }
+  readLocalHash(): Promise<string | null> { return Promise.resolve(this._localHash); }
+  writeRemoteBaseHash(): Promise<void> { return Promise.resolve(); }
+  writeLocalHash(): Promise<void> { return Promise.resolve(); }
   writeCache(): Promise<void> { return Promise.resolve(); }
 }
 
