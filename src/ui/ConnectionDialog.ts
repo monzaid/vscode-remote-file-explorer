@@ -152,48 +152,147 @@ export class ConnectionDialog {
   }
 
   /**
-   * Show edit connection dialog (pre-filled with existing values).
+   * Show edit connection dialog with full field editing,
+   * auth type switching, and remote path management.
    */
   async showEditConnectionDialog(existing: ConnectionConfig): Promise<ConnectionConfig | undefined> {
-    // For simplicity, show a QuickPick of fields to edit
-    const field = await vscode.window.showQuickPick(
-      [
-        { label: 'Label', description: existing.label },
-        { label: 'Host', description: existing.host },
-        { label: 'Port', description: String(existing.port) },
-        { label: 'Username', description: existing.username },
-        { label: 'Change Password', description: 'Update stored password' },
-      ],
-      { placeHolder: 'Select field to edit' },
-    );
-    if (!field) return undefined;
+    const updated = { ...existing, mountedPaths: [...existing.mountedPaths] };
+    let editing = true;
 
-    const updated = { ...existing };
+    while (editing) {
+      const items: vscode.QuickPickItem[] = [
+        { label: `Label: ${updated.label}`, description: '$(edit) Click to change' },
+        { label: `Host: ${updated.host}`, description: `$(edit) Click to change` },
+        { label: `Port: ${updated.port}`, description: `$(edit) Click to change` },
+        { label: `Username: ${updated.username}`, description: `$(edit) Click to change` },
+        { label: `Auth: ${updated.authType}`, description: updated.authType === 'key' && updated.privateKeyPath ? `Key: ${updated.privateKeyPath}` : '$(edit) Click to change' },
+        ...(updated.authType === 'password'
+          ? [{ label: 'Change Password', description: '$(key) Update stored password' } as vscode.QuickPickItem]
+          : []),
+        ...(updated.authType === 'key'
+          ? [
+              { label: `Key: ${updated.privateKeyPath || '(not set)'}`, description: '$(folder) Select private key file' } as vscode.QuickPickItem,
+              { label: 'Change Passphrase', description: '$(key) Update passphrase' } as vscode.QuickPickItem,
+            ]
+          : []),
+        { label: '$(folder) Manage Remote Paths', description: `${updated.mountedPaths.length} path(s) configured` },
+        { label: '$(check) Done Editing', description: 'Save changes' },
+      ];
 
-    switch (field.label) {
-      case 'Label':
-        const label = await vscode.window.showInputBox({ prompt: 'New label', value: existing.label });
-        if (label) updated.label = label;
-        break;
-      case 'Host':
-        const host = await vscode.window.showInputBox({ prompt: 'New host', value: existing.host });
-        if (host) updated.host = host;
-        break;
-      case 'Port':
-        const portStr = await vscode.window.showInputBox({ prompt: 'New port', value: String(existing.port) });
-        if (portStr) updated.port = parseInt(portStr, 10);
-        break;
-      case 'Username':
-        const username = await vscode.window.showInputBox({ prompt: 'New username', value: existing.username });
-        if (username) updated.username = username;
-        break;
-      case 'Change Password':
-        const password = await vscode.window.showInputBox({ prompt: 'New password', password: true });
-        if (password !== undefined) updated.password = password;
-        break;
+      const field = await vscode.window.showQuickPick(items, {
+        placeHolder: `Editing "${existing.label}" — select a field to change, or Done to save`,
+      });
+      if (!field) return undefined;
+
+      const choice = field.label;
+
+      if (choice.startsWith('Label:')) {
+        const v = await vscode.window.showInputBox({ prompt: 'New label', value: updated.label });
+        if (v) updated.label = v;
+      } else if (choice.startsWith('Host:')) {
+        const v = await vscode.window.showInputBox({ prompt: 'New host', value: updated.host });
+        if (v) updated.host = v;
+      } else if (choice.startsWith('Port:')) {
+        const v = await vscode.window.showInputBox({ prompt: 'New port', value: String(updated.port) });
+        if (v && !isNaN(parseInt(v))) updated.port = parseInt(v, 10);
+      } else if (choice.startsWith('Username:')) {
+        const v = await vscode.window.showInputBox({ prompt: 'New username', value: updated.username });
+        if (v) updated.username = v;
+      } else if (choice.startsWith('Auth:')) {
+        const newAuth = await vscode.window.showQuickPick(
+          [
+            { label: 'Password', description: 'Authenticate with password' },
+            { label: 'Private Key', description: 'Authenticate with SSH key' },
+          ],
+          { placeHolder: 'Select authentication method' },
+        );
+        if (newAuth) {
+          updated.authType = newAuth.label === 'Private Key' ? 'key' : 'password';
+          if (updated.authType === 'password') {
+            updated.privateKeyPath = undefined;
+            updated.passphrase = undefined;
+          }
+        }
+      } else if (choice.startsWith('Change Password') || choice.startsWith('Change Passphrase')) {
+        const v = await vscode.window.showInputBox({ prompt: 'New password/passphrase', password: true });
+        if (v !== undefined) {
+          if (choice.startsWith('Change Passphrase')) {
+            updated.passphrase = v;
+          } else {
+            updated.password = v;
+          }
+        }
+      } else if (choice.startsWith('Key:')) {
+        const keyUris = await vscode.window.showOpenDialog({
+          canSelectFiles: true, canSelectMany: false,
+          openLabel: 'Select Private Key', filters: { 'All Files': ['*'] },
+        });
+        if (keyUris && keyUris.length > 0) updated.privateKeyPath = keyUris[0].fsPath;
+      } else if (choice.includes('Manage Remote Paths')) {
+        await this.manageRemotePaths(updated);
+      } else if (choice.includes('Done')) {
+        editing = false;
+      }
     }
 
     return updated;
+  }
+
+  /**
+   * Sub-dialog for managing remote paths: add, edit, delete.
+   */
+  private async manageRemotePaths(config: ConnectionConfig): Promise<void> {
+    let managing = true;
+    while (managing) {
+      const items: vscode.QuickPickItem[] = [
+        ...config.mountedPaths.map((mp, i) => ({
+          label: `$(folder) ${mp.label}`,
+          description: mp.remotePath,
+          detail: `$(edit) Edit | $(trash) Delete`,
+          index: i,
+        })),
+        { label: '$(add) Add New Path', description: 'Add another remote path' },
+        { label: '$(arrow-left) Back', description: 'Return to connection settings' },
+      ];
+
+      const chosen = await vscode.window.showQuickPick(items, {
+        placeHolder: `Manage remote paths for "${config.label}"`,
+      });
+
+      if (!chosen || chosen.label.includes('Back')) {
+        managing = false;
+        continue;
+      }
+
+      if (chosen.label.includes('Add')) {
+        const remotePath = await vscode.window.showInputBox({ prompt: 'Remote path', placeHolder: '/var/www' });
+        if (!remotePath) continue;
+        const pathLabel = await vscode.window.showInputBox({
+          prompt: 'Label for this mount', placeHolder: remotePath.split('/').pop() || remotePath,
+          value: remotePath.split('/').pop() || remotePath,
+        });
+        if (pathLabel === undefined) continue;
+        config.mountedPaths.push({ remotePath, label: pathLabel || remotePath });
+      } else {
+        const idx = (chosen as any).index as number;
+        if (idx === undefined) continue;
+        const action = await vscode.window.showQuickPick(['Edit', 'Delete'], {
+          placeHolder: `"${config.mountedPaths[idx].label}" — Edit or Delete?`,
+        });
+        if (action === 'Edit') {
+          const newLabel = await vscode.window.showInputBox({
+            prompt: 'New label', value: config.mountedPaths[idx].label,
+          });
+          if (newLabel !== undefined) config.mountedPaths[idx].label = newLabel;
+          const newPath = await vscode.window.showInputBox({
+            prompt: 'New remote path', value: config.mountedPaths[idx].remotePath,
+          });
+          if (newPath !== undefined) config.mountedPaths[idx].remotePath = newPath;
+        } else if (action === 'Delete') {
+          config.mountedPaths.splice(idx, 1);
+        }
+      }
+    }
   }
 
   /**
