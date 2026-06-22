@@ -18,15 +18,35 @@ export class TerminalManager implements vscode.Disposable {
   }
 
   /**
-   * Create an SSH terminal for a connection.
-   * @param connectionId The connection to open a terminal for
-   * @param label Optional label for the terminal
+   * Ensure a connection is active (connect if needed).
+   * Returns the adapter or throws with a user-friendly error.
+   */
+  private async ensureConnected(connectionId: string): Promise<IProtocolAdapter> {
+    // Try existing adapter first
+    let adapter = this.connectionManager.getAdapter(connectionId);
+    if (adapter?.isConnected()) {
+      return adapter;
+    }
+
+    // Not connected — try connecting now
+    try {
+      await this.connectionManager.connect(connectionId);
+      adapter = this.connectionManager.getAdapter(connectionId);
+      if (!adapter) {
+        throw new Error('Connection failed to provide an adapter');
+      }
+      return adapter;
+    } catch (err) {
+      throw new Error(`Cannot open terminal: ${err instanceof Error ? err.message : 'Connection failed'}`);
+    }
+  }
+
+  /**
+   * Create a new SSH terminal. Always creates a fresh terminal
+   * (never reuses existing ones).
    */
   async createTerminal(connectionId: string, label?: string): Promise<vscode.Terminal> {
-    const adapter = this.connectionManager.getAdapter(connectionId);
-    if (!adapter) {
-      throw new Error(`Connection ${connectionId} is not active`);
-    }
+    const adapter = await this.ensureConnected(connectionId);
 
     if (!adapter.createShell) {
       throw new Error('Shell is not supported for this connection type');
@@ -35,19 +55,6 @@ export class TerminalManager implements vscode.Disposable {
     const conn = await this.connectionManager.getConnection(connectionId);
     const terminalLabel = label || `SSH: ${conn?.label || connectionId}`;
 
-    // Close existing terminal for this connection if any
-    // P2-8 fix: clean up old listener before disposing old terminal
-    const existing = this.activeTerminals.get(connectionId);
-    if (existing) {
-      const oldListener = this.closeListeners.get(connectionId);
-      if (oldListener) {
-        oldListener.dispose();
-        this.closeListeners.delete(connectionId);
-      }
-      existing.dispose();
-    }
-
-    // Create Pseudoterminal
     const pty = new SSHPseudoterminal(adapter);
 
     const terminal = vscode.window.createTerminal({
@@ -55,15 +62,18 @@ export class TerminalManager implements vscode.Disposable {
       pty,
     });
 
+    // Show the terminal panel
+    terminal.show();
+
+    // Track for cleanup
     this.activeTerminals.set(connectionId, terminal);
 
-    // P1-2 fix: self-cleaning listener — disposes itself after matching terminal closes
     const closeListener = vscode.window.onDidCloseTerminal((closed) => {
       if (closed === terminal) {
         this.activeTerminals.delete(connectionId);
         this.closeListeners.delete(connectionId);
         pty.dispose();
-        closeListener.dispose(); // self-cleanup
+        closeListener.dispose();
       }
     });
     this.closeListeners.set(connectionId, closeListener);
@@ -72,8 +82,8 @@ export class TerminalManager implements vscode.Disposable {
   }
 
   /**
-   * Open a terminal for a connection. If only one connection exists, opens directly.
-   * If multiple, shows a QuickPick to select.
+   * Open a terminal for a connection. If no connectionId is provided,
+   * shows QuickPick to select from all available connections (not just active ones).
    */
   async openTerminal(connectionId?: string): Promise<void> {
     if (connectionId) {
@@ -81,29 +91,24 @@ export class TerminalManager implements vscode.Disposable {
       return;
     }
 
-    const activeIds = this.connectionManager.getActiveConnectionIds();
+    // Show all connections, not just active ones
+    const connections = this.connectionManager.getAllConnections();
 
-    if (activeIds.length === 0) {
-      vscode.window.showErrorMessage('No active connections. Connect to a server first.');
+    if (connections.length === 0) {
+      vscode.window.showErrorMessage('No connections configured. Add a connection first.');
       return;
     }
 
-    if (activeIds.length === 1) {
-      await this.createTerminal(activeIds[0]);
+    if (connections.length === 1) {
+      await this.createTerminal(connections[0].id);
       return;
     }
 
-    // Multiple connections — show QuickPick
-    const items = await Promise.all(
-      activeIds.map(async (id) => {
-        const conn = await this.connectionManager.getConnection(id);
-        return {
-          label: conn?.label || id,
-          description: conn ? `${conn.protocol}://${conn.host}` : '',
-          connectionId: id,
-        };
-      }),
-    );
+    const items = connections.map((conn) => ({
+      label: conn.label,
+      description: `${conn.protocol}://${conn.host}`,
+      connectionId: conn.id,
+    }));
 
     const selected = await vscode.window.showQuickPick(items, {
       placeHolder: 'Select connection to open terminal',
