@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { ConnectionManager } from '../core/ConnectionManager';
 import { IProtocolAdapter } from '../core/IProtocolAdapter';
 import { ShellSession } from '../core/types';
+import { SSHAdapter } from '../adapters/SSHAdapter';
 
 /**
  * Manages SSH terminal sessions using VSCode Pseudoterminal API.
@@ -18,20 +19,29 @@ export class TerminalManager implements vscode.Disposable {
   }
 
   /**
-   * Get the adapter for a connection. Auto-connects only THIS connection
-   * if not already active (does NOT affect any other connections).
+   * Ensure an SSH terminal session is ready. Auto-connects only THIS connection
+   * using terminal-only mode (no SFTP/FTP). Does NOT affect other connections.
    */
   private async ensureConnected(connectionId: string): Promise<IProtocolAdapter> {
     let adapter = this.connectionManager.getAdapter(connectionId);
     if (adapter?.isConnected()) {
       return adapter;
     }
-    await this.connectionManager.connect(connectionId);
-    adapter = this.connectionManager.getAdapter(connectionId);
-    if (!adapter) {
-      throw new Error(`Connection failed`);
+
+    // Not connected — establish SSH session WITHOUT SFTP
+    const config = await this.connectionManager.getConnection(connectionId);
+    if (!config) {
+      throw new Error(`Connection ${connectionId} not found`);
     }
-    return adapter;
+    if (config.protocol !== 'ssh') {
+      throw new Error('Terminal is only supported for SSH connections');
+    }
+
+    const sshAdapter = new SSHAdapter();
+    await sshAdapter.connectTerminalOnly(config);
+    // Register the adapter so subsequent calls find it
+    this.connectionManager.setAdapter(connectionId, sshAdapter);
+    return sshAdapter;
   }
 
   /**
