@@ -47,14 +47,14 @@ export class SSHAdapter implements IProtocolAdapter {
         if (settled) return;
         settled = true;
         this.connected = true;
-        // Initialize SFTP session
+        // Initialize SFTP session — failure is non-fatal so shell-based
+        // features (terminal, search) still work without SFTP.
         this.client!.sftp((err, sftp) => {
           if (err) {
-            this.connected = false;
-            reject(new Error(`SFTP session failed: ${err.message}`));
-            return;
+            console.log(`[ssh2] SFTP session unavailable (terminal-only mode): ${err.message}`);
+          } else {
+            this.sftp = sftp;
           }
-          this.sftp = sftp;
           resolve();
         });
       });
