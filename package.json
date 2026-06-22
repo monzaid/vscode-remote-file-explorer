@@ -57,184 +57,110 @@
         }
       ]
     },
-    "commands": [
+"commands": [
       {
         "command": "remote-fs.addConnection",
-        "title": "Remote FS: Add Connection"
+        "title": "Add Connection",
+        "icon": "$(add)"
       },
       {
         "command": "remote-fs.toggleConnection",
-        "title": "Remote FS: Connect/Disconnect"
+        "title": "Connect/Disconnect",
+        "icon": "$(debug-start)"
       },
       {
         "command": "remote-fs.search",
-        "title": "Remote FS: Search Files"
+        "title": "Search Files",
+        "icon": "$(search)"
       },
       {
         "command": "remote-fs.refresh",
-        "title": "Remote FS: Refresh Explorer"
+        "title": "Refresh",
+        "icon": "$(refresh)"
       },
       {
         "command": "remote-fs.syncCurrentFile",
-        "title": "Remote FS: Sync Current File"
+        "title": "Sync",
+        "icon": "$(cloud-download)"
       },
       {
         "command": "remote-fs.uploadCurrentFile",
-        "title": "Remote FS: Upload Current File"
+        "title": "Upload",
+        "icon": "$(cloud-upload)"
       },
       {
         "command": "remote-fs.openTerminal",
-        "title": "Remote FS: Open SSH Terminal"
+        "title": "Open Terminal",
+        "icon": "$(terminal)"
       },
       {
         "command": "remote-fs.manageConnections",
-        "title": "Remote FS: Manage Connections"
+        "title": "Manage",
+        "icon": "$(gear)"
       },
       {
         "command": "remote-fs.connect",
-        "title": "Connect"
+        "title": "Connect",
+        "icon": "$(plug)"
       },
       {
         "command": "remote-fs.disconnect",
-        "title": "Disconnect"
+        "title": "Disconnect",
+        "icon": "$(debug-disconnect)"
       },
       {
         "command": "remote-fs.newFile",
-        "title": "New File"
+        "title": "New File",
+        "icon": "$(new-file)"
       },
       {
         "command": "remote-fs.newFolder",
-        "title": "New Folder"
+        "title": "New Folder",
+        "icon": "$(new-folder)"
       },
       {
         "command": "remote-fs.deleteFile",
-        "title": "Delete"
+        "title": "Delete",
+        "icon": "$(trash)"
       },
       {
         "command": "remote-fs.renameFile",
-        "title": "Rename"
+        "title": "Rename",
+        "icon": "$(edit)"
       },
       {
         "command": "remote-fs.copyPath",
-        "title": "Copy Remote Path"
+        "title": "Copy Path",
+        "icon": "$(copy)"
       },
       {
         "command": "remote-fs.downloadToLocal",
-        "title": "Download to Local"
+        "title": "Download",
+        "icon": "$(desktop-download)"
       }
     ],
     "menus": {
       "view/title": [
-        {
-          "command": "remote-fs.addConnection",
-          "when": "view == remote-fs-explorer",
-          "group": "navigation",
-          "icon": "$(add)"
-        },
-        {
-          "command": "remote-fs.refresh",
-          "when": "view == remote-fs-explorer",
-          "group": "navigation",
-          "icon": "$(refresh)"
-        },
-        {
-          "command": "remote-fs.search",
-          "when": "view == remote-fs-explorer",
-          "group": "navigation",
-          "icon": "$(search)"
-        },
-        {
-          "command": "remote-fs.manageConnections",
-          "when": "view == remote-fs-explorer",
-          "group": "navigation",
-          "icon": "$(gear)"
-        },
-        {
-          "command": "remote-fs.toggleConnection",
-          "when": "view == remote-fs-explorer",
-          "group": "navigation",
-          "icon": "$(debug-start)"
-        }
+        { "command": "remote-fs.addConnection", "when": "view == remote-fs-explorer", "group": "navigation" },
+        { "command": "remote-fs.refresh", "when": "view == remote-fs-explorer", "group": "navigation" },
+        { "command": "remote-fs.search", "when": "view == remote-fs-explorer", "group": "navigation" },
+        { "command": "remote-fs.manageConnections", "when": "view == remote-fs-explorer", "group": "navigation" },
+        { "command": "remote-fs.toggleConnection", "when": "view == remote-fs-explorer", "group": "navigation" }
       ],
       "view/item/context": [
-        {
-          "command": "remote-fs.connect",
-          "when": "viewItem == connection && view == remote-fs-explorer",
-          "group": "inline@1",
-          "icon": "$(plug)"
-        },
-        {
-          "command": "remote-fs.disconnect",
-          "when": "viewItem == connection && view == remote-fs-explorer",
-          "group": "inline@2",
-          "icon": "$(debug-disconnect)"
-        },
-        {
-          "command": "remote-fs.openTerminal",
-          "when": "viewItem == connection && view == remote-fs-explorer",
-          "group": "inline@3",
-          "icon": "$(terminal)"
-        },
-        {
-          "command": "remote-fs.manageConnections",
-          "when": "viewItem == connection && view == remote-fs-explorer",
-          "group": "1_connection",
-          "icon": "$(gear)"
-        },
-        {
-          "command": "remote-fs.newFile",
-          "when": "viewItem == directory && view == remote-fs-explorer",
-          "group": "inline@1",
-          "icon": "$(new-file)"
-        },
-        {
-          "command": "remote-fs.newFolder",
-          "when": "viewItem == directory && view == remote-fs-explorer",
-          "group": "inline@2",
-          "icon": "$(new-folder)"
-        },
-        {
-          "command": "remote-fs.refresh",
-          "when": "viewItem == directory && view == remote-fs-explorer",
-          "group": "2_directory",
-          "icon": "$(refresh)"
-        },
-        {
-          "command": "remote-fs.deleteFile",
-          "when": "viewItem =~ /^(file|directory)$/ && view == remote-fs-explorer",
-          "group": "3_common",
-          "icon": "$(trash)"
-        },
-        {
-          "command": "remote-fs.renameFile",
-          "when": "viewItem =~ /^(file|directory)$/ && view == remote-fs-explorer",
-          "group": "3_common",
-          "icon": "$(edit)"
-        },
-        {
-          "command": "remote-fs.copyPath",
-          "when": "viewItem =~ /^(file|directory)$/ && view == remote-fs-explorer",
-          "group": "4_common",
-          "icon": "$(copy)"
-        },
-        {
-          "command": "remote-fs.downloadToLocal",
-          "when": "viewItem == file && view == remote-fs-explorer",
-          "group": "4_common",
-          "icon": "$(desktop-download)"
-        },
-        {
-          "command": "remote-fs.syncCurrentFile",
-          "when": "viewItem == file && view == remote-fs-explorer",
-          "group": "inline@1",
-          "icon": "$(cloud-download)"
-        },
-        {
-          "command": "remote-fs.uploadCurrentFile",
-          "when": "viewItem == file && view == remote-fs-explorer",
-          "group": "inline@2",
-          "icon": "$(cloud-upload)"
-        }
+        { "command": "remote-fs.connect", "when": "viewItem == connection && view == remote-fs-explorer", "group": "inline@1" },
+        { "command": "remote-fs.disconnect", "when": "viewItem == connection && view == remote-fs-explorer", "group": "inline@2" },
+        { "command": "remote-fs.openTerminal", "when": "viewItem == connection && view == remote-fs-explorer", "group": "inline@3" },
+        { "command": "remote-fs.manageConnections", "when": "viewItem == connection && view == remote-fs-explorer", "group": "1_connection" },
+        { "command": "remote-fs.newFile", "when": "viewItem == directory && view == remote-fs-explorer", "group": "inline@1" },
+        { "command": "remote-fs.newFolder", "when": "viewItem == directory && view == remote-fs-explorer", "group": "inline@2" },
+        { "command": "remote-fs.refresh", "when": "viewItem == directory && view == remote-fs-explorer", "group": "2_directory" },
+        { "command": "remote-fs.deleteFile", "when": "viewItem =~ /^(file|directory)$/ && view == remote-fs-explorer", "group": "3_common" },
+        { "command": "remote-fs.renameFile", "when": "viewItem =~ /^(file|directory)$/ && view == remote-fs-explorer", "group": "3_common" },
+        { "command": "remote-fs.copyPath", "when": "viewItem =~ /^(file|directory)$/ && view == remote-fs-explorer", "group": "4_common" },
+        { "command": "remote-fs.downloadToLocal", "when": "viewItem == file && view == remote-fs-explorer", "group": "4_common" },
+        { "command": "remote-fs.syncCurrentFile", "when": "viewItem == file && view == remote-fs-explorer", "group": "inline@1" },
+        { "command": "remote-fs.uploadCurrentFile", "when": "viewItem == file && view == remote-fs-explorer", "group": "inline@2" }
       ]
     },
     "configuration": {
