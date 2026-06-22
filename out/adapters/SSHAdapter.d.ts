@@ -9,9 +9,16 @@ export declare class SSHAdapter implements IProtocolAdapter {
     private config;
     private connected;
     /**
-     * Establish SSH connection with password or key authentication.
+     * Establish SSH connection with SFTP (for file browsing).
      */
     connect(config: ConnectionConfig): Promise<void>;
+    /**
+     * Establish SSH connection WITHOUT SFTP — for terminal-only use.
+     * No FTP/SFTP logic is involved. Only SSH shell is available.
+     */
+    connectTerminalOnly(config: ConnectionConfig): Promise<void>;
+    /** Shared SSH connection logic. `withSftp` controls whether SFTP is initialized. */
+    private doConnect;
     /**
      * Disconnect from the remote server.
      */

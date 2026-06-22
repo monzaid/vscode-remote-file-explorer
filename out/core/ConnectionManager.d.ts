@@ -88,6 +88,10 @@ export declare class ConnectionManager implements vscode.Disposable {
      */
     getAdapter(id: string): IProtocolAdapter | undefined;
     /**
+     * Register an externally-created adapter (e.g. terminal-only SSH).
+     */
+    setAdapter(id: string, adapter: IProtocolAdapter): void;
+    /**
      * Get connection status.
      */
     getStatus(id: string): ConnectionStatus;

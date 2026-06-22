@@ -48,9 +48,20 @@ class SSHAdapter {
         this.connected = false;
     }
     /**
-     * Establish SSH connection with password or key authentication.
+     * Establish SSH connection with SFTP (for file browsing).
      */
     async connect(config) {
+        return this.doConnect(config, true);
+    }
+    /**
+     * Establish SSH connection WITHOUT SFTP — for terminal-only use.
+     * No FTP/SFTP logic is involved. Only SSH shell is available.
+     */
+    async connectTerminalOnly(config) {
+        return this.doConnect(config, false);
+    }
+    /** Shared SSH connection logic. `withSftp` controls whether SFTP is initialized. */
+    doConnect(config, withSftp) {
         this.config = config;
         return new Promise((resolve, reject) => {
             this.client = new ssh2_1.Client();
@@ -62,26 +73,30 @@ class SSHAdapter {
                 readyTimeout: 60000,
                 keepaliveInterval: 10000,
                 debug: (message) => {
-                    // Log ssh2-level debug messages for diagnostics
                     console.log(`[ssh2 debug] ${message}`);
                 },
             };
-            // ✅ 1. Register event listeners FIRST (always, before any auth path)
             this.client.on('ready', () => {
                 if (settled)
                     return;
                 settled = true;
                 this.connected = true;
-                // Initialize SFTP session
-                this.client.sftp((err, sftp) => {
-                    if (err) {
-                        this.connected = false;
-                        reject(new Error(`SFTP session failed: ${err.message}`));
-                        return;
-                    }
-                    this.sftp = sftp;
+                if (withSftp) {
+                    this.client.sftp((err, sftp) => {
+                        if (err) {
+                            console.log(`[ssh2] SFTP session unavailable: ${err.message}`);
+                            // SFTP failure is non-fatal — resolve so terminal still works
+                        }
+                        else {
+                            this.sftp = sftp;
+                        }
+                        resolve();
+                    });
+                }
+                else {
+                    // Terminal-only: no SFTP at all
                     resolve();
-                });
+                }
             });
             this.client.on('error', (err) => {
                 if (settled)
@@ -94,13 +109,10 @@ class SSHAdapter {
                 this.connected = false;
                 this.sftp = null;
             });
-            // ✅ 2. Auth setup (readFile for key, set password, etc.)
             if (config.authType === 'password' && config.password) {
                 sshConfig.password = config.password;
             }
             else if (config.authType === 'key') {
-                // Prefer config.passphrase over config.password for key auth
-                // to avoid semantic confusion between login password and key passphrase.
                 const keyPassphrase = config.passphrase ?? config.password;
                 if (config.privateKeyPath) {
                     (0, promises_1.readFile)(config.privateKeyPath)
@@ -117,19 +129,17 @@ class SSHAdapter {
                         settled = true;
                         reject(new Error(`Failed to read private key: ${err.message}`));
                     });
-                    return; // Early return — connect is handled inside the then() callback
+                    return;
                 }
                 if (keyPassphrase) {
                     sshConfig.passphrase = keyPassphrase;
                 }
             }
-            // ✅ 3. Verify that at least one auth method is configured before connecting
             if (!sshConfig.password && !sshConfig.privateKey && !sshConfig.passphrase) {
                 settled = true;
                 reject(new Error('No authentication method configured for SSH connection'));
                 return;
             }
-            // ✅ 4. connect() for non-readFile paths
             this.client.connect(sshConfig);
         });
     }

@@ -11,14 +11,18 @@ export declare class TerminalManager implements vscode.Disposable {
     private closeListeners;
     constructor(connectionManager: ConnectionManager);
     /**
-     * Create an SSH terminal for a connection.
-     * @param connectionId The connection to open a terminal for
-     * @param label Optional label for the terminal
+     * Ensure an SSH terminal session is ready. Auto-connects only THIS connection
+     * using terminal-only mode (no SFTP/FTP). Does NOT affect other connections.
+     */
+    private ensureConnected;
+    /**
+     * Create a new SSH terminal. Always creates a fresh terminal.
+     * Auto-connects the selected connection if not already active.
      */
     createTerminal(connectionId: string, label?: string): Promise<vscode.Terminal>;
     /**
-     * Open a terminal for a connection. If only one connection exists, opens directly.
-     * If multiple, shows a QuickPick to select.
+     * Open a terminal for a connection. If no connectionId is provided,
+     * shows QuickPick to select from all available connections (not just active ones).
      */
     openTerminal(connectionId?: string): Promise<void>;
     /**

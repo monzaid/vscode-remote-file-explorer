@@ -296,6 +296,12 @@ class ConnectionManager {
         return this.activeAdapters.get(id);
     }
     /**
+     * Register an externally-created adapter (e.g. terminal-only SSH).
+     */
+    setAdapter(id, adapter) {
+        this.activeAdapters.set(id, adapter);
+    }
+    /**
      * Get connection status.
      */
     getStatus(id) {
