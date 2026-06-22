@@ -136,12 +136,31 @@ exports.RemoteTreeItem = RemoteTreeItem;
  * Displays connections, mounted paths, directories, and files in a tree structure.
  */
 class SidebarProvider {
+    /** Walk up parent paths to find the nearest sort config for this directory */
+    getSortConfig(connId, remotePath) {
+        let current = remotePath;
+        while (current) {
+            const key = `${connId}:${current}`;
+            const cfg = this.sortConfigs.get(key);
+            if (cfg)
+                return cfg;
+            if (current === '/')
+                break;
+            const parent = current.substring(0, current.lastIndexOf('/')) || '/';
+            if (parent === current)
+                break;
+            current = parent;
+        }
+        return { field: 'name', asc: true };
+    }
     constructor(connectionManager) {
         this._onDidChangeTreeData = new vscode.EventEmitter();
         this.onDidChangeTreeData = this._onDidChangeTreeData.event;
         this.adapters = new Map();
         // P2-2 fix: directory cache to avoid repeated remote I/O on re-expand
         this.dirCache = new Map();
+        // Sort config per remote path (connectionId:remotePath → SortConfig)
+        this.sortConfigs = new Map();
         this.connectionManager = connectionManager;
         // Listen for connection status changes
         this.connectionManager.onConnectionStatusChange.on('statusChange', () => {
@@ -277,13 +296,13 @@ class SidebarProvider {
         const cacheKey = `${connId}:${remotePath}`;
         const cached = this.dirCache.get(cacheKey);
         if (cached && (Date.now() - cached.timestamp) < SidebarProvider.DIR_CACHE_TTL) {
-            return this.buildDirectoryItems(cached.entries, connId, protocol);
+            return this.buildDirectoryItems(cached.entries, connId, remotePath, protocol);
         }
         try {
             const entries = await adapter.readDirectory(remotePath);
             // P2-2: update cache
             this.dirCache.set(cacheKey, { entries, timestamp: Date.now() });
-            return this.buildDirectoryItems(entries, connId, protocol);
+            return this.buildDirectoryItems(entries, connId, remotePath, protocol);
         }
         catch (err) {
             return [
@@ -293,20 +312,61 @@ class SidebarProvider {
     }
     /**
      * Build sorted RemoteTreeItem array from directory entries.
+     * Sort mode is per remote path (connId:remotePath key).
      */
-    buildDirectoryItems(entries, connId, protocol) {
-        // Sort: directories first, then by name alphabetically
+    buildDirectoryItems(entries, connId, remotePath, protocol) {
+        const cfg = this.getSortConfig(connId, remotePath || '/');
         const sorted = [...entries].sort((a, b) => {
-            if (a.stat.type === 'directory' && b.stat.type !== 'directory')
+            // Directories always first
+            const aIsDir = a.stat.type === 'directory';
+            const bIsDir = b.stat.type === 'directory';
+            if (aIsDir && !bIsDir)
                 return -1;
-            if (a.stat.type !== 'directory' && b.stat.type === 'directory')
+            if (!aIsDir && bIsDir)
                 return 1;
-            return a.name.localeCompare(b.name);
+            // Apply selected sort field + direction
+            let cmp;
+            switch (cfg.field) {
+                case 'mtime':
+                    cmp = a.stat.mtime.getTime() - b.stat.mtime.getTime();
+                    break;
+                case 'size':
+                    cmp = a.stat.size - b.stat.size;
+                    break;
+                case 'type':
+                    cmp = path.extname(a.name).toLowerCase().localeCompare(path.extname(b.name).toLowerCase())
+                        || a.name.localeCompare(b.name);
+                    break;
+                case 'name':
+                default:
+                    cmp = a.name.localeCompare(b.name);
+                    break;
+            }
+            return cfg.asc ? cmp : -cmp;
         });
         return sorted.map((entry) => {
             const isDir = entry.stat.type === 'directory';
             return new RemoteTreeItem(entry.name, isDir ? 'directory' : 'file', isDir ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None, connId, entry.path, entry.stat, protocol);
         });
+    }
+    /**
+     * Set sort config for a remote path and all its sub-directories (recursive).
+     * If the same field is selected again, toggles direction.
+     * Clears cached entries so expanded nodes rebuild with new sort order.
+     */
+    setSortMode(connectionId, remotePath, field) {
+        const key = `${connectionId}:${remotePath}`;
+        const existing = this.sortConfigs.get(key);
+        // Toggle direction if same field, otherwise default to asc
+        const asc = (existing && existing.field === field) ? !existing.asc : true;
+        this.sortConfigs.set(key, { field, asc });
+        // Clear cache for this path and all sub-paths
+        for (const k of this.dirCache.keys()) {
+            if (k === key || k.startsWith(key + '/')) {
+                this.dirCache.delete(k);
+            }
+        }
+        this._onDidChangeTreeData.fire();
     }
 }
 exports.SidebarProvider = SidebarProvider;

@@ -209,6 +209,86 @@ async function activate(context) {
         context.subscriptions.push(vscode.commands.registerCommand('remote-fs.openTerminal', async (node) => {
             await terminalManager.openTerminal(node?.connectionId);
         }));
+        context.subscriptions.push(vscode.commands.registerCommand('remote-fs.sortTree', async (node) => {
+            if (!node?.connectionId || !node?.remotePath)
+                return;
+            const current = sidebarProvider.getSortConfig(node.connectionId, node.remotePath);
+            const arrow = current.asc ? ' ↑' : ' ↓';
+            const items = [
+                { label: `$(symbol-string) Name`, description: current.field === 'name' ? `A→Z${arrow}` : 'A→Z', field: 'name' },
+                { label: `$(watch) Modified`, description: current.field === 'mtime' ? (current.asc ? `Oldest first${arrow}` : `Newest first${arrow}`) : '', field: 'mtime' },
+                { label: `$(file) Size`, description: current.field === 'size' ? (current.asc ? `Smallest first${arrow}` : `Largest first${arrow}`) : '', field: 'size' },
+                { label: `$(file-code) Type`, description: current.field === 'type' ? `Grouped${arrow}` : '', field: 'type' },
+            ];
+            const chosen = await vscode.window.showQuickPick(items, {
+                placeHolder: `Sort "${node.remotePath.split('/').pop() || node.remotePath}" by... (same = toggle direction)`,
+            });
+            if (chosen) {
+                sidebarProvider.setSortMode(node.connectionId, node.remotePath, chosen.field);
+            }
+        }));
+        // Rename a remote path (mountedPath inline button)
+        context.subscriptions.push(vscode.commands.registerCommand('remote-fs.renameRemotePath', async (node) => {
+            if (!node?.connectionId || !node?.remotePath)
+                return;
+            const curName = node.label || node.remotePath.split('/').pop() || node.remotePath;
+            const newName = await vscode.window.showInputBox({
+                prompt: 'Rename remote path',
+                value: curName,
+                validateInput: (v) => {
+                    if (!v)
+                        return 'Name cannot be empty';
+                    if (v.includes('/') || v.includes('\\'))
+                        return 'Name cannot contain path separators';
+                    if (v === curName)
+                        return undefined; // skip save if unchanged
+                    return undefined;
+                },
+            });
+            if (!newName || newName === curName)
+                return;
+            const conn = await connectionManager.getConnection(node.connectionId);
+            if (!conn)
+                return;
+            const mp = conn.mountedPaths.find(m => m.remotePath === node.remotePath);
+            if (mp)
+                mp.label = newName;
+            await connectionManager.updateConnection(node.connectionId, conn);
+            sidebarProvider.refresh();
+        }));
+        // Delete a remote path (mountedPath inline button)
+        context.subscriptions.push(vscode.commands.registerCommand('remote-fs.deleteRemotePath', async (node) => {
+            if (!node?.connectionId || !node?.remotePath)
+                return;
+            const name = node.label || node.remotePath.split('/').pop() || node.remotePath;
+            const confirm = await vscode.window.showWarningMessage(`Delete remote path "${name}"?`, { modal: true }, 'Delete', 'Cancel');
+            if (confirm !== 'Delete')
+                return;
+            const conn = await connectionManager.getConnection(node.connectionId);
+            if (!conn)
+                return;
+            conn.mountedPaths = conn.mountedPaths.filter(mp => mp.remotePath !== node.remotePath);
+            await connectionManager.updateConnection(node.connectionId, conn);
+            sidebarProvider.refresh();
+        }));
+        // Add directory to remote path config (directory context menu)
+        context.subscriptions.push(vscode.commands.registerCommand('remote-fs.addToRemotePaths', async (node) => {
+            if (!node?.connectionId || !node?.remotePath)
+                return;
+            const conn = await connectionManager.getConnection(node.connectionId);
+            if (!conn)
+                return;
+            const existing = conn.mountedPaths.find(mp => mp.remotePath === node.remotePath);
+            if (existing) {
+                vscode.window.showInformationMessage(`"${node.remotePath}" is already in Remote Paths.`);
+                return;
+            }
+            const pathLabel = node.label || node.remotePath.split('/').pop() || node.remotePath;
+            conn.mountedPaths.push({ remotePath: node.remotePath, label: pathLabel });
+            await connectionManager.updateConnection(node.connectionId, conn);
+            sidebarProvider.refresh();
+            vscode.window.showInformationMessage(`Added "${pathLabel}" to Remote Paths.`);
+        }));
         context.subscriptions.push(vscode.commands.registerCommand('remote-fs.manageConnections', async () => {
             const connections = connectionManager.getAllConnections();
             const selected = await connectionDialog.showConnectionList(connections);

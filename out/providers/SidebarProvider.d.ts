@@ -6,6 +6,13 @@ import { RemoteFileStat } from '../core/types';
  * Tree item types for the sidebar.
  */
 type TreeItemType = 'connection' | 'mountedPath' | 'directory' | 'file';
+/** Sort mode (field) */
+export type SortField = 'name' | 'mtime' | 'size' | 'type';
+/** Sort configuration including direction */
+export interface SortConfig {
+    field: SortField;
+    asc: boolean;
+}
 /**
  * Custom TreeItem for Remote File Explorer.
  */
@@ -31,6 +38,9 @@ export declare class SidebarProvider implements vscode.TreeDataProvider<RemoteTr
     private adapters;
     private dirCache;
     private static readonly DIR_CACHE_TTL;
+    private sortConfigs;
+    /** Walk up parent paths to find the nearest sort config for this directory */
+    getSortConfig(connId: string, remotePath: string): SortConfig;
     constructor(connectionManager: ConnectionManager);
     /**
      * Register an adapter for a connection.
@@ -75,8 +85,15 @@ export declare class SidebarProvider implements vscode.TreeDataProvider<RemoteTr
     private getDirectoryChildren;
     /**
      * Build sorted RemoteTreeItem array from directory entries.
+     * Sort mode is per remote path (connId:remotePath key).
      */
     private buildDirectoryItems;
+    /**
+     * Set sort config for a remote path and all its sub-directories (recursive).
+     * If the same field is selected again, toggles direction.
+     * Clears cached entries so expanded nodes rebuild with new sort order.
+     */
+    setSortMode(connectionId: string, remotePath: string, field: SortField): void;
 }
 export {};
 //# sourceMappingURL=SidebarProvider.d.ts.map
