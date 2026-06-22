@@ -176,48 +176,193 @@ class ConnectionDialog {
         return config;
     }
     /**
-     * Show edit connection dialog (pre-filled with existing values).
+     * Show edit connection dialog with full field editing,
+     * auth type switching, and remote path management.
      */
     async showEditConnectionDialog(existing) {
-        // For simplicity, show a QuickPick of fields to edit
-        const field = await vscode.window.showQuickPick([
-            { label: 'Label', description: existing.label },
-            { label: 'Host', description: existing.host },
-            { label: 'Port', description: String(existing.port) },
-            { label: 'Username', description: existing.username },
-            { label: 'Change Password', description: 'Update stored password' },
-        ], { placeHolder: 'Select field to edit' });
-        if (!field)
-            return undefined;
-        const updated = { ...existing };
-        switch (field.label) {
-            case 'Label':
-                const label = await vscode.window.showInputBox({ prompt: 'New label', value: existing.label });
-                if (label)
-                    updated.label = label;
-                break;
-            case 'Host':
-                const host = await vscode.window.showInputBox({ prompt: 'New host', value: existing.host });
-                if (host)
-                    updated.host = host;
-                break;
-            case 'Port':
-                const portStr = await vscode.window.showInputBox({ prompt: 'New port', value: String(existing.port) });
-                if (portStr)
-                    updated.port = parseInt(portStr, 10);
-                break;
-            case 'Username':
-                const username = await vscode.window.showInputBox({ prompt: 'New username', value: existing.username });
-                if (username)
-                    updated.username = username;
-                break;
-            case 'Change Password':
-                const password = await vscode.window.showInputBox({ prompt: 'New password', password: true });
-                if (password !== undefined)
-                    updated.password = password;
-                break;
+        const updated = { ...existing, mountedPaths: [...existing.mountedPaths] };
+        let editing = true;
+        while (editing) {
+            const authDesc = updated.authType === 'key' && updated.privateKeyPath
+                ? `$(key) Key: ${updated.privateKeyPath.split(/[\\/]/).pop()}`
+                : updated.authType === 'password'
+                    ? '$(key) Password'
+                    : '$(edit) Click to change';
+            const items = [
+                { label: `Label: ${updated.label}`, description: '$(edit) Click to change' },
+                { label: `Host: ${updated.host}`, description: `$(edit) Click to change` },
+                { label: `Port: ${updated.port}`, description: `$(edit) Click to change` },
+                { label: `Username: ${updated.username}`, description: `$(edit) Click to change` },
+                { label: '$(shield) Manage Auth', description: authDesc },
+                { label: '$(folder) Manage Remote Paths', description: `${updated.mountedPaths.length} path(s) configured` },
+                { label: '$(check) Done Editing', description: 'Save changes' },
+            ];
+            const field = await vscode.window.showQuickPick(items, {
+                placeHolder: `Editing "${existing.label}" — select a field to change, or Done to save`,
+            });
+            if (!field)
+                return undefined;
+            const choice = field.label;
+            if (choice.startsWith('Label:')) {
+                const v = await vscode.window.showInputBox({ prompt: 'New label', value: updated.label });
+                if (v)
+                    updated.label = v;
+            }
+            else if (choice.startsWith('Host:')) {
+                const v = await vscode.window.showInputBox({ prompt: 'New host', value: updated.host });
+                if (v)
+                    updated.host = v;
+            }
+            else if (choice.startsWith('Port:')) {
+                const v = await vscode.window.showInputBox({ prompt: 'New port', value: String(updated.port) });
+                if (v && !isNaN(parseInt(v)))
+                    updated.port = parseInt(v, 10);
+            }
+            else if (choice.startsWith('Username:')) {
+                const v = await vscode.window.showInputBox({ prompt: 'New username', value: updated.username });
+                if (v)
+                    updated.username = v;
+            }
+            else if (choice.includes('Manage Auth')) {
+                await this.manageAuth(updated);
+            }
+            else if (choice.includes('Manage Remote Paths')) {
+                await this.manageRemotePaths(updated);
+            }
+            else if (choice.includes('Done')) {
+                editing = false;
+            }
         }
         return updated;
+    }
+    /**
+     * Sub-dialog for managing authentication: switch type, set password/key/passphrase.
+     */
+    async manageAuth(config) {
+        let managing = true;
+        while (managing) {
+            const authLabel = config.authType === 'key'
+                ? `$(key) Private Key`
+                : `$(key) Password`;
+            const items = [
+                { label: `Auth Type: ${config.authType}`, description: '$(edit) Switch between password and key' },
+                ...(config.authType === 'password'
+                    ? [{ label: `Password: ${config.password ? '$(check) Set' : '$(circle-slash) Not set'}`, description: '$(edit) Change password' }]
+                    : []),
+                ...(config.authType === 'key'
+                    ? [
+                        { label: `Key File: ${config.privateKeyPath || '$(circle-slash) Not set'}`, description: '$(folder) Select private key' },
+                        { label: `Passphrase: ${config.passphrase ? '$(check) Set' : '$(circle-slash) Not set'}`, description: '$(edit) Change passphrase' },
+                    ]
+                    : []),
+                { label: '$(arrow-left) Back', description: 'Return to connection settings' },
+            ];
+            const chosen = await vscode.window.showQuickPick(items, {
+                placeHolder: `Manage authentication for "${config.label}"`,
+            });
+            if (!chosen || chosen.label.includes('Back')) {
+                managing = false;
+                continue;
+            }
+            const choice = chosen.label;
+            if (choice.startsWith('Auth Type:')) {
+                const newAuth = await vscode.window.showQuickPick([
+                    { label: 'Password', description: 'Authenticate with password' },
+                    { label: 'Private Key', description: 'Authenticate with SSH key' },
+                ], { placeHolder: 'Select authentication method' });
+                if (newAuth) {
+                    config.authType = newAuth.label === 'Private Key' ? 'key' : 'password';
+                    if (config.authType === 'password') {
+                        config.privateKeyPath = undefined;
+                        config.passphrase = undefined;
+                    }
+                }
+            }
+            else if (choice.startsWith('Password:')) {
+                const v = await vscode.window.showInputBox({
+                    prompt: 'Enter password', password: true,
+                    value: config.password || '',
+                });
+                if (v !== undefined)
+                    config.password = v;
+            }
+            else if (choice.startsWith('Key File:')) {
+                const keyUris = await vscode.window.showOpenDialog({
+                    canSelectFiles: true, canSelectMany: false,
+                    openLabel: 'Select Private Key', filters: { 'All Files': ['*'] },
+                });
+                if (keyUris && keyUris.length > 0)
+                    config.privateKeyPath = keyUris[0].fsPath;
+            }
+            else if (choice.startsWith('Passphrase:')) {
+                const v = await vscode.window.showInputBox({
+                    prompt: 'Enter passphrase', password: true,
+                    value: config.passphrase || '',
+                });
+                if (v !== undefined)
+                    config.passphrase = v;
+            }
+        }
+    }
+    /**
+     * Sub-dialog for managing remote paths: add, edit, delete.
+     */
+    async manageRemotePaths(config) {
+        let managing = true;
+        while (managing) {
+            const items = [
+                ...config.mountedPaths.map((mp, i) => ({
+                    label: `$(folder) ${mp.label}`,
+                    description: mp.remotePath,
+                    detail: `$(edit) Edit | $(trash) Delete`,
+                    index: i,
+                })),
+                { label: '$(add) Add New Path', description: 'Add another remote path' },
+                { label: '$(arrow-left) Back', description: 'Return to connection settings' },
+            ];
+            const chosen = await vscode.window.showQuickPick(items, {
+                placeHolder: `Manage remote paths for "${config.label}"`,
+            });
+            if (!chosen || chosen.label.includes('Back')) {
+                managing = false;
+                continue;
+            }
+            if (chosen.label.includes('Add')) {
+                const remotePath = await vscode.window.showInputBox({ prompt: 'Remote path', placeHolder: '/var/www' });
+                if (!remotePath)
+                    continue;
+                const pathLabel = await vscode.window.showInputBox({
+                    prompt: 'Label for this mount', placeHolder: remotePath.split('/').pop() || remotePath,
+                    value: remotePath.split('/').pop() || remotePath,
+                });
+                if (pathLabel === undefined)
+                    continue;
+                config.mountedPaths.push({ remotePath, label: pathLabel || remotePath });
+            }
+            else {
+                const idx = chosen.index;
+                if (idx === undefined)
+                    continue;
+                const action = await vscode.window.showQuickPick(['Edit', 'Delete'], {
+                    placeHolder: `"${config.mountedPaths[idx].label}" — Edit or Delete?`,
+                });
+                if (action === 'Edit') {
+                    const newLabel = await vscode.window.showInputBox({
+                        prompt: 'New label', value: config.mountedPaths[idx].label,
+                    });
+                    if (newLabel !== undefined)
+                        config.mountedPaths[idx].label = newLabel;
+                    const newPath = await vscode.window.showInputBox({
+                        prompt: 'New remote path', value: config.mountedPaths[idx].remotePath,
+                    });
+                    if (newPath !== undefined)
+                        config.mountedPaths[idx].remotePath = newPath;
+                }
+                else if (action === 'Delete') {
+                    config.mountedPaths.splice(idx, 1);
+                }
+            }
+        }
     }
     /**
      * Show delete confirmation dialog.

@@ -467,30 +467,5 @@ export function registerAllCommands(_context: vscode.ExtensionContext): vscode.D
     }),
   );
 
-  // ==================================================================
-  // revealInExplorer — open cached file in OS file explorer (Shift+Alt+R)
-  // ==================================================================
-  disposables.push(
-    vscode.commands.registerCommand('remote-fs.revealInExplorer', async (node?: { connectionId?: string; remotePath?: string }) => {
-      const parsed = parseNode(node);
-      if (!parsed) return;
-
-      if (!deps.cacheManager) {
-        vscode.window.showErrorMessage('Cache manager not available.');
-        return;
-      }
-
-      const cachePath = deps.cacheManager.getCachePath(parsed.connectionId, parsed.remotePath);
-      const exists = await deps.cacheManager.hasCache(parsed.connectionId, parsed.remotePath);
-      if (!exists) {
-        vscode.window.showErrorMessage('File is not cached. Open it first.');
-        return;
-      }
-
-      const cacheUri = vscode.Uri.file(cachePath);
-      await vscode.commands.executeCommand('revealFileInOS', cacheUri);
-    }),
-  );
-
   return disposables;
 }

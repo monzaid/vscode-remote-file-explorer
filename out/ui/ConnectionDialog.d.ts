@@ -8,9 +8,18 @@ export declare class ConnectionDialog {
      */
     showAddConnectionDialog(): Promise<ConnectionConfig | undefined>;
     /**
-     * Show edit connection dialog (pre-filled with existing values).
+     * Show edit connection dialog with full field editing,
+     * auth type switching, and remote path management.
      */
     showEditConnectionDialog(existing: ConnectionConfig): Promise<ConnectionConfig | undefined>;
+    /**
+     * Sub-dialog for managing authentication: switch type, set password/key/passphrase.
+     */
+    private manageAuth;
+    /**
+     * Sub-dialog for managing remote paths: add, edit, delete.
+     */
+    private manageRemotePaths;
     /**
      * Show delete confirmation dialog.
      */
