@@ -9,8 +9,14 @@ import { RemoteFileEntry, RemoteFileStat, ConnectionStatus } from '../core/types
  */
 type TreeItemType = 'connection' | 'mountedPath' | 'directory' | 'file';
 
-/** Sort modes for directory/file listings */
-export type SortMode = 'name' | 'mtime' | 'size' | 'type';
+/** Sort mode (field) */
+export type SortField = 'name' | 'mtime' | 'size' | 'type';
+
+/** Sort configuration including direction */
+export interface SortConfig {
+  field: SortField;
+  asc: boolean;
+}
 
 /**
  * Custom TreeItem for Remote File Explorer.
@@ -141,22 +147,22 @@ export class SidebarProvider implements vscode.TreeDataProvider<RemoteTreeItem> 
   private dirCache: Map<string, { entries: RemoteFileEntry[]; timestamp: number }> = new Map();
   private static readonly DIR_CACHE_TTL = 5000; // 5 seconds
 
-  // Sort modes per remote path (connectionId:remotePath → SortMode)
-  private sortModes: Map<string, SortMode> = new Map();
+  // Sort config per remote path (connectionId:remotePath → SortConfig)
+  private sortConfigs: Map<string, SortConfig> = new Map();
 
-  /** Walk up parent paths to find the nearest sort mode for this directory */
-  private getSortMode(connId: string, remotePath: string): SortMode {
+  /** Walk up parent paths to find the nearest sort config for this directory */
+  getSortConfig(connId: string, remotePath: string): SortConfig {
     let current = remotePath;
     while (current) {
       const key = `${connId}:${current}`;
-      const mode = this.sortModes.get(key);
-      if (mode) return mode;
+      const cfg = this.sortConfigs.get(key);
+      if (cfg) return cfg;
       if (current === '/') break;
       const parent = current.substring(0, current.lastIndexOf('/')) || '/';
       if (parent === current) break;
       current = parent;
     }
-    return 'name';
+    return { field: 'name', asc: true };
   }
 
   constructor(connectionManager: ConnectionManager) {
@@ -364,7 +370,7 @@ export class SidebarProvider implements vscode.TreeDataProvider<RemoteTreeItem> 
     remotePath?: string,
     protocol?: string,
   ): RemoteTreeItem[] {
-    const mode = this.getSortMode(connId, remotePath || '/');
+    const cfg = this.getSortConfig(connId, remotePath || '/');
 
     const sorted = [...entries].sort((a, b) => {
       // Directories always first
@@ -373,20 +379,25 @@ export class SidebarProvider implements vscode.TreeDataProvider<RemoteTreeItem> 
       if (aIsDir && !bIsDir) return -1;
       if (!aIsDir && bIsDir) return 1;
 
-      // Apply selected sort mode (only within same type group)
-      switch (mode) {
+      // Apply selected sort field + direction
+      let cmp: number;
+      switch (cfg.field) {
         case 'mtime':
-          return b.stat.mtime.getTime() - a.stat.mtime.getTime();
+          cmp = a.stat.mtime.getTime() - b.stat.mtime.getTime();
+          break;
         case 'size':
-          return a.stat.size - b.stat.size;
+          cmp = a.stat.size - b.stat.size;
+          break;
         case 'type':
-          const extA = path.extname(a.name).toLowerCase();
-          const extB = path.extname(b.name).toLowerCase();
-          return extA.localeCompare(extB) || a.name.localeCompare(b.name);
+          cmp = path.extname(a.name).toLowerCase().localeCompare(path.extname(b.name).toLowerCase())
+            || a.name.localeCompare(b.name);
+          break;
         case 'name':
         default:
-          return a.name.localeCompare(b.name);
+          cmp = a.name.localeCompare(b.name);
+          break;
       }
+      return cfg.asc ? cmp : -cmp;
     });
 
     return sorted.map((entry) => {
@@ -404,16 +415,20 @@ export class SidebarProvider implements vscode.TreeDataProvider<RemoteTreeItem> 
   }
 
   /**
-   * Set sort mode for a remote path and all its sub-directories (recursive).
+   * Set sort config for a remote path and all its sub-directories (recursive).
+   * If the same field is selected again, toggles direction.
    * Clears cached entries so expanded nodes rebuild with new sort order.
    */
-  setSortMode(connectionId: string, remotePath: string, mode: SortMode): void {
-    const prefix = `${connectionId}:${remotePath}`;
-    this.sortModes.set(prefix, mode);
+  setSortMode(connectionId: string, remotePath: string, field: SortField): void {
+    const key = `${connectionId}:${remotePath}`;
+    const existing = this.sortConfigs.get(key);
+    // Toggle direction if same field, otherwise default to asc
+    const asc = (existing && existing.field === field) ? !existing.asc : true;
+    this.sortConfigs.set(key, { field, asc });
     // Clear cache for this path and all sub-paths
-    for (const key of this.dirCache.keys()) {
-      if (key === prefix || key.startsWith(prefix + '/')) {
-        this.dirCache.delete(key);
+    for (const k of this.dirCache.keys()) {
+      if (k === key || k.startsWith(key + '/')) {
+        this.dirCache.delete(k);
       }
     }
     this._onDidChangeTreeData.fire();

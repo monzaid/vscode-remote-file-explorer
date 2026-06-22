@@ -12,7 +12,7 @@ import { ConnectionDialog } from './ui/ConnectionDialog';
 import { registerAllCommands, setCommandDeps } from './commands/commandRegistry';
 import { registerMenuCommands } from './commands/menuCommands';
 import { SyncCommandHandler } from './commands/syncCommands';
-import { SortMode } from './providers/SidebarProvider';
+import { SortField } from './providers/SidebarProvider';
 import { IProtocolAdapter } from './core/IProtocolAdapter';
 import { ConnectionStatus } from './core/types';
 
@@ -228,17 +228,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     context.subscriptions.push(
       vscode.commands.registerCommand('remote-fs.sortTree', async (node?: { connectionId?: string; remotePath?: string }) => {
         if (!node?.connectionId || !node?.remotePath) return;
-        const sortMode = await vscode.window.showQuickPick(
-          [
-            { label: '$(symbol-string) By Name', description: 'Alphabetical order', mode: 'name' as SortMode },
-            { label: '$(watch) By Modified Time', description: 'Newest first', mode: 'mtime' as SortMode },
-            { label: '$(file) By Size', description: 'Smallest first', mode: 'size' as SortMode },
-            { label: '$(file-code) By Type', description: 'Group by file extension', mode: 'type' as SortMode },
-          ],
-          { placeHolder: `Sort "${node.remotePath.split('/').pop() || node.remotePath}" by...` },
-        );
-        if (sortMode) {
-          sidebarProvider!.setSortMode(node.connectionId, node.remotePath, sortMode.mode);
+        const current = sidebarProvider!.getSortConfig(node.connectionId, node.remotePath);
+        const arrow = current.asc ? ' ↑' : ' ↓';
+        const items: { label: string; description: string; field: SortField }[] = [
+          { label: `$(symbol-string) Name`, description: current.field === 'name' ? `A→Z${arrow}` : 'A→Z', field: 'name' },
+          { label: `$(watch) Modified`, description: current.field === 'mtime' ? (current.asc ? `Oldest first${arrow}` : `Newest first${arrow}`) : '', field: 'mtime' },
+          { label: `$(file) Size`, description: current.field === 'size' ? (current.asc ? `Smallest first${arrow}` : `Largest first${arrow}`) : '', field: 'size' },
+          { label: `$(file-code) Type`, description: current.field === 'type' ? `Grouped${arrow}` : '', field: 'type' },
+        ];
+        const chosen = await vscode.window.showQuickPick(items, {
+          placeHolder: `Sort "${node.remotePath.split('/').pop() || node.remotePath}" by... (same = toggle direction)`,
+        });
+        if (chosen) {
+          sidebarProvider!.setSortMode(node.connectionId, node.remotePath, chosen.field);
         }
       }),
     );
