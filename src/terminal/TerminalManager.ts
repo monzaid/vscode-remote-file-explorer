@@ -18,23 +18,28 @@ export class TerminalManager implements vscode.Disposable {
   }
 
   /**
-   * Get the adapter for a connection. Throws if not active.
+   * Get the adapter for a connection. Auto-connects only THIS connection
+   * if not already active (does NOT affect any other connections).
    */
-  private getActiveAdapter(connectionId: string): IProtocolAdapter {
-    const adapter = this.connectionManager.getAdapter(connectionId);
-    if (!adapter?.isConnected()) {
-      throw new Error(`Connection ${connectionId} is not active`);
+  private async ensureConnected(connectionId: string): Promise<IProtocolAdapter> {
+    let adapter = this.connectionManager.getAdapter(connectionId);
+    if (adapter?.isConnected()) {
+      return adapter;
+    }
+    await this.connectionManager.connect(connectionId);
+    adapter = this.connectionManager.getAdapter(connectionId);
+    if (!adapter) {
+      throw new Error(`Connection failed`);
     }
     return adapter;
   }
 
   /**
-   * Create a new SSH terminal. Always creates a fresh terminal
-   * (never reuses existing ones). Does NOT auto-connect — the user
-   * must connect manually first via the tree view or command.
+   * Create a new SSH terminal. Always creates a fresh terminal.
+   * Auto-connects the selected connection if not already active.
    */
   async createTerminal(connectionId: string, label?: string): Promise<vscode.Terminal> {
-    const adapter = this.getActiveAdapter(connectionId);
+    const adapter = await this.ensureConnected(connectionId);
 
     if (!adapter.createShell) {
       throw new Error('Shell is not supported for this connection type');
