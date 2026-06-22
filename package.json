@@ -137,6 +137,11 @@
         "command": "remote-fs.downloadToLocal",
         "title": "Download",
         "icon": "$(desktop-download)"
+      },
+      {
+        "command": "remote-fs.sortTree",
+        "title": "Sort",
+        "icon": "$(list-filter)"
       }
     ],
     "menus": {
@@ -152,6 +157,7 @@
         { "command": "remote-fs.disconnect", "when": "viewItem == connection && view == remote-fs-explorer", "group": "inline@2" },
         { "command": "remote-fs.openTerminal", "when": "viewItem == connection && view == remote-fs-explorer", "group": "inline@3" },
         { "command": "remote-fs.manageConnections", "when": "viewItem == connection && view == remote-fs-explorer", "group": "1_connection" },
+        { "command": "remote-fs.sortTree", "when": "viewItem == mountedPath && view == remote-fs-explorer", "group": "inline@1" },
         { "command": "remote-fs.newFile", "when": "viewItem == directory && view == remote-fs-explorer", "group": "inline@1" },
         { "command": "remote-fs.newFolder", "when": "viewItem == directory && view == remote-fs-explorer", "group": "inline@2" },
         { "command": "remote-fs.refresh", "when": "viewItem == directory && view == remote-fs-explorer", "group": "2_directory" },

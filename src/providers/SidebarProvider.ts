@@ -9,6 +9,9 @@ import { RemoteFileEntry, RemoteFileStat, ConnectionStatus } from '../core/types
  */
 type TreeItemType = 'connection' | 'mountedPath' | 'directory' | 'file';
 
+/** Sort modes for directory/file listings */
+export type SortMode = 'name' | 'mtime' | 'size' | 'type';
+
 /**
  * Custom TreeItem for Remote File Explorer.
  */
@@ -137,6 +140,9 @@ export class SidebarProvider implements vscode.TreeDataProvider<RemoteTreeItem> 
   // P2-2 fix: directory cache to avoid repeated remote I/O on re-expand
   private dirCache: Map<string, { entries: RemoteFileEntry[]; timestamp: number }> = new Map();
   private static readonly DIR_CACHE_TTL = 5000; // 5 seconds
+
+  // Sort modes per remote path (connectionId:remotePath → SortMode)
+  private sortModes: Map<string, SortMode> = new Map();
 
   constructor(connectionManager: ConnectionManager) {
     this.connectionManager = connectionManager;
@@ -312,7 +318,7 @@ export class SidebarProvider implements vscode.TreeDataProvider<RemoteTreeItem> 
     const cacheKey = `${connId}:${remotePath}`;
     const cached = this.dirCache.get(cacheKey);
     if (cached && (Date.now() - cached.timestamp) < SidebarProvider.DIR_CACHE_TTL) {
-      return this.buildDirectoryItems(cached.entries, connId, protocol);
+      return this.buildDirectoryItems(cached.entries, connId, remotePath, protocol);
     }
 
     try {
@@ -321,7 +327,7 @@ export class SidebarProvider implements vscode.TreeDataProvider<RemoteTreeItem> 
       // P2-2: update cache
       this.dirCache.set(cacheKey, { entries, timestamp: Date.now() });
 
-      return this.buildDirectoryItems(entries, connId, protocol);
+      return this.buildDirectoryItems(entries, connId, remotePath, protocol);
     } catch (err) {
       return [
         new RemoteTreeItem(
@@ -335,17 +341,38 @@ export class SidebarProvider implements vscode.TreeDataProvider<RemoteTreeItem> 
 
   /**
    * Build sorted RemoteTreeItem array from directory entries.
+   * Sort mode is per remote path (connId:remotePath key).
    */
   private buildDirectoryItems(
     entries: RemoteFileEntry[],
     connId: string,
+    remotePath?: string,
     protocol?: string,
   ): RemoteTreeItem[] {
-    // Sort: directories first, then by name alphabetically
+    const sortKey = `${connId}:${remotePath || '/'}`;
+    const mode = this.sortModes.get(sortKey) || 'name';
+
     const sorted = [...entries].sort((a, b) => {
-      if (a.stat.type === 'directory' && b.stat.type !== 'directory') return -1;
-      if (a.stat.type !== 'directory' && b.stat.type === 'directory') return 1;
-      return a.name.localeCompare(b.name);
+      // Directories always first
+      const aIsDir = a.stat.type === 'directory';
+      const bIsDir = b.stat.type === 'directory';
+      if (aIsDir && !bIsDir) return -1;
+      if (!aIsDir && bIsDir) return 1;
+
+      // Apply selected sort mode (only within same type group)
+      switch (mode) {
+        case 'mtime':
+          return b.stat.mtime.getTime() - a.stat.mtime.getTime();
+        case 'size':
+          return a.stat.size - b.stat.size;
+        case 'type':
+          const extA = path.extname(a.name).toLowerCase();
+          const extB = path.extname(b.name).toLowerCase();
+          return extA.localeCompare(extB) || a.name.localeCompare(b.name);
+        case 'name':
+        default:
+          return a.name.localeCompare(b.name);
+      }
     });
 
     return sorted.map((entry) => {
@@ -360,5 +387,17 @@ export class SidebarProvider implements vscode.TreeDataProvider<RemoteTreeItem> 
         protocol,
       );
     });
+  }
+
+  /**
+   * Set sort mode for a remote path and refresh that node.
+   */
+  setSortMode(connectionId: string, remotePath: string, mode: SortMode): void {
+    const key = `${connectionId}:${remotePath}`;
+    this.sortModes.set(key, mode);
+    // Clear cache to force re-read with new sort
+    this.dirCache.delete(key);
+    // Find and refresh the mountedPath node
+    this._onDidChangeTreeData.fire();
   }
 }

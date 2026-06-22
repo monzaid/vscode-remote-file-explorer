@@ -12,6 +12,7 @@ import { ConnectionDialog } from './ui/ConnectionDialog';
 import { registerAllCommands, setCommandDeps } from './commands/commandRegistry';
 import { registerMenuCommands } from './commands/menuCommands';
 import { SyncCommandHandler } from './commands/syncCommands';
+import { SortMode } from './providers/SidebarProvider';
 import { IProtocolAdapter } from './core/IProtocolAdapter';
 import { ConnectionStatus } from './core/types';
 
@@ -221,6 +222,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     context.subscriptions.push(
       vscode.commands.registerCommand('remote-fs.openTerminal', async (node?: { connectionId?: string }) => {
         await terminalManager!.openTerminal(node?.connectionId);
+      }),
+    );
+
+    context.subscriptions.push(
+      vscode.commands.registerCommand('remote-fs.sortTree', async (node?: { connectionId?: string; remotePath?: string }) => {
+        if (!node?.connectionId || !node?.remotePath) return;
+        const sortMode = await vscode.window.showQuickPick(
+          [
+            { label: '$(symbol-string) By Name', description: 'Alphabetical order', mode: 'name' as SortMode },
+            { label: '$(watch) By Modified Time', description: 'Newest first', mode: 'mtime' as SortMode },
+            { label: '$(file) By Size', description: 'Smallest first', mode: 'size' as SortMode },
+            { label: '$(file-code) By Type', description: 'Group by file extension', mode: 'type' as SortMode },
+          ],
+          { placeHolder: `Sort "${node.remotePath.split('/').pop() || node.remotePath}" by...` },
+        );
+        if (sortMode) {
+          sidebarProvider!.setSortMode(node.connectionId, node.remotePath, sortMode.mode);
+        }
       }),
     );
 
