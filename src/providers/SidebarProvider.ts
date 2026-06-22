@@ -144,6 +144,21 @@ export class SidebarProvider implements vscode.TreeDataProvider<RemoteTreeItem> 
   // Sort modes per remote path (connectionId:remotePath → SortMode)
   private sortModes: Map<string, SortMode> = new Map();
 
+  /** Walk up parent paths to find the nearest sort mode for this directory */
+  private getSortMode(connId: string, remotePath: string): SortMode {
+    let current = remotePath;
+    while (current) {
+      const key = `${connId}:${current}`;
+      const mode = this.sortModes.get(key);
+      if (mode) return mode;
+      if (current === '/') break;
+      const parent = current.substring(0, current.lastIndexOf('/')) || '/';
+      if (parent === current) break;
+      current = parent;
+    }
+    return 'name';
+  }
+
   constructor(connectionManager: ConnectionManager) {
     this.connectionManager = connectionManager;
 
@@ -349,8 +364,7 @@ export class SidebarProvider implements vscode.TreeDataProvider<RemoteTreeItem> 
     remotePath?: string,
     protocol?: string,
   ): RemoteTreeItem[] {
-    const sortKey = `${connId}:${remotePath || '/'}`;
-    const mode = this.sortModes.get(sortKey) || 'name';
+    const mode = this.getSortMode(connId, remotePath || '/');
 
     const sorted = [...entries].sort((a, b) => {
       // Directories always first
@@ -390,14 +404,18 @@ export class SidebarProvider implements vscode.TreeDataProvider<RemoteTreeItem> 
   }
 
   /**
-   * Set sort mode for a remote path and refresh that node.
+   * Set sort mode for a remote path and all its sub-directories (recursive).
+   * Clears cached entries so expanded nodes rebuild with new sort order.
    */
   setSortMode(connectionId: string, remotePath: string, mode: SortMode): void {
-    const key = `${connectionId}:${remotePath}`;
-    this.sortModes.set(key, mode);
-    // Clear cache to force re-read with new sort
-    this.dirCache.delete(key);
-    // Find and refresh the mountedPath node
+    const prefix = `${connectionId}:${remotePath}`;
+    this.sortModes.set(prefix, mode);
+    // Clear cache for this path and all sub-paths
+    for (const key of this.dirCache.keys()) {
+      if (key === prefix || key.startsWith(prefix + '/')) {
+        this.dirCache.delete(key);
+      }
+    }
     this._onDidChangeTreeData.fire();
   }
 }
