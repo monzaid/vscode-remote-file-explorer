@@ -13,6 +13,10 @@ export declare class ConnectionManager implements vscode.Disposable {
     private statusMap;
     private reconnectTimers;
     private reconnectAttempts;
+    /** Guard: set of connection IDs currently executing a reconnect cycle */
+    private reconnectingInProgress;
+    /** Guard: set of connection IDs blocked from auto-reconnect (e.g. after manual disconnect) */
+    private reconnectBlocked;
     private keepaliveInterval;
     private secretStorage;
     private emitter;
@@ -77,6 +81,7 @@ export declare class ConnectionManager implements vscode.Disposable {
     setAdapterFactory(factory: (protocol: string) => IProtocolAdapter): void;
     /**
      * Connect to a remote server.
+     * Idempotent: skips if already connected or connecting.
      */
     connect(id: string): Promise<void>;
     /**
@@ -117,6 +122,9 @@ export declare class ConnectionManager implements vscode.Disposable {
      * Start keepalive checks for all active connections.
      * Uses parallel checks with per-connection timeout to prevent a single
      * hung connection from blocking all other keepalive checks.
+     *
+     * P2: Each keepalive cycle gets a ±5s jitter to prevent thundering herd
+     * when multiple connections are active.
      */
     private startKeepalive;
     /**

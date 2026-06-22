@@ -88,6 +88,7 @@ class ConcurrencyController {
     /**
      * Execute a function and decrement activeCount on completion.
      * After completion, attempts to dequeue the next waiting operation.
+     * Protected against dequeue() failures that could otherwise stall the queue.
      */
     async execute(fn, label) {
         this._activeCount++;
@@ -96,11 +97,18 @@ class ConcurrencyController {
         }
         finally {
             this._activeCount--;
-            this.dequeue();
+            try {
+                this.dequeue();
+            }
+            catch {
+                // Prevent dequeue failures from silently stalling the queue.
+                // The next completed operation will retry dequeue naturally.
+            }
         }
     }
     /**
      * Dequeue and execute the next waiting operation, if any.
+     * Protected against reject() failures to prevent queue stall.
      */
     dequeue() {
         const entry = this.queue.shift();
@@ -110,7 +118,19 @@ class ConcurrencyController {
         if (this.queue.length > 0) {
             vscode.window.setStatusBarMessage(`$(sync~spin) Remote FS: ${this.queue.length} operation(s) queued...`, 3000);
         }
-        this.execute(entry.fn, entry.label).then(entry.resolve).catch(entry.reject);
+        this.execute(entry.fn, entry.label)
+            .then(entry.resolve)
+            .catch((err) => {
+            try {
+                entry.reject(err);
+            }
+            catch {
+                // Reject itself failed — log and continue.
+                // The queue is safe: execute()'s finally already called dequeue()
+                // for the NEXT entry, so the cascade continues.
+                console.error('[ConcurrencyController] entry.reject threw:', err);
+            }
+        });
     }
 }
 exports.ConcurrencyController = ConcurrencyController;

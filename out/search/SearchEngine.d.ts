@@ -30,10 +30,17 @@ export declare class SearchEngine {
      * Supported formats:
      *   rg:  file:line:content
      *   grep: file:line:content
+     *
+     * @deprecated P2: This method duplicates parseSearchOutput in SSHAdapter.
+     *   Since search() delegates to adapter.search() which returns SearchResult[],
+     *   this parser is only used as a fallback for adapters that don't implement search().
+     *   Future: extract shared parse logic to a common module (e.g. src/search/searchParser.ts).
      */
     parseSearchOutput(output: string): SearchResult[];
     /**
      * Parse a single line of search output.
+     *
+     * @deprecated P2: Duplicated in SSHAdapter. Keep in sync or extract to shared module.
      */
     private parseLine;
 }

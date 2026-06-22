@@ -33,6 +33,7 @@ export declare class RemoteFSProvider implements vscode.FileSystemProvider {
     /**
      * Parse remote URI to extract path.
      * URI format: remote-{protocol}://connection-id/path/to/file
+     * P2 fix: validate authority to prevent injection via malicious URIs.
      */
     private parseUri;
     /**
@@ -46,10 +47,13 @@ export declare class RemoteFSProvider implements vscode.FileSystemProvider {
     stat(uri: vscode.Uri): Promise<vscode.FileStat>;
     /**
      * List directory contents.
+     * P2-3: apply maxTreeItems limit to prevent overwhelming the UI.
      */
     readDirectory(uri: vscode.Uri): Promise<[string, vscode.FileType][]>;
     /**
      * Read file contents. Cache-first strategy.
+     * P1: download-first on cache miss (no separate stat call — saves 1 RTT).
+     * Size checks use content.byteLength from the download result.
      */
     readFile(uri: vscode.Uri): Promise<Uint8Array>;
     /**
@@ -77,10 +81,11 @@ export declare class RemoteFSProvider implements vscode.FileSystemProvider {
      */
     createDirectory(uri: vscode.Uri): Promise<void>;
     /**
-     * Watch for file changes. Currently returns an empty disposable
-     * since real-time watching is not implemented.
+     * Watch for file changes via polling fallback.
+     * P2 fix: implements 30s polling to detect remote file changes.
+     * Real-time inotify/kqueue is not available over remote protocols.
      */
-    watch(_uri: vscode.Uri, _options: {
+    watch(uri: vscode.Uri, _options: {
         readonly recursive: boolean;
         readonly excludes: readonly string[];
     }): vscode.Disposable;

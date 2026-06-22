@@ -41,12 +41,13 @@ export class ConnectionDialog {
       placeHolder: defaultPort,
       value: defaultPort,
       validateInput: (value) => {
-        const num = parseInt(value, 10);
-        return isNaN(num) || num < 1 || num > 65535 ? 'Invalid port number' : undefined;
+        if (!value || !value.trim()) return undefined; // empty = use default
+        const num = parseInt(value.trim(), 10);
+        return isNaN(num) || num < 1 || num > 65535 ? 'Invalid port (1-65535)' : undefined;
       },
     });
     if (portStr === undefined) return undefined;
-    const port = parseInt(portStr || defaultPort, 10);
+    const port = parseInt((portStr || defaultPort).trim(), 10);
 
     // Step 4: Username
     const username = await vscode.window.showInputBox({
@@ -218,7 +219,7 @@ export class ConnectionDialog {
       const items: vscode.QuickPickItem[] = [
         { label: `Auth Type: ${config.authType}`, description: '$(edit) Switch between password and key' },
         ...(config.authType === 'password'
-          ? [{ label: `Password: ${config.password ? '$(check) Set' : '$(circle-slash) Not set'}`, description: '$(edit) Change password' }]
+          ? [{ label: `Password: $(edit) Change password`, description: '' }]
           : []),
         ...(config.authType === 'key'
           ? [

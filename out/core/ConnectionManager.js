@@ -53,6 +53,10 @@ class ConnectionManager {
         this.statusMap = new Map();
         this.reconnectTimers = new Map();
         this.reconnectAttempts = new Map();
+        /** Guard: set of connection IDs currently executing a reconnect cycle */
+        this.reconnectingInProgress = new Set();
+        /** Guard: set of connection IDs blocked from auto-reconnect (e.g. after manual disconnect) */
+        this.reconnectBlocked = new Set();
         this.keepaliveInterval = null;
         this.emitter = new events_1.EventEmitter();
         this.onConnectionStatusChange = this.emitter;
@@ -97,7 +101,15 @@ class ConnectionManager {
      */
     async saveConfiguration() {
         await fs.mkdir(path.dirname(this.configPath), { recursive: true });
-        // Whitelist: explicitly list fields to persist (exclude secrets)
+        /**
+         * ⚠️ SECURITY — Whitelist: explicitly list fields to persist.
+         *
+         * Secrets (password, passphrase, agentToken) are stored via SecretStorage
+         * (OS-level encrypted storage), NOT in this plaintext config file.
+         *
+         * DO NOT ADD these fields: password, passphrase, agentToken
+         * If you add a new secret field, update SecretStorage instead.
+         */
         const connections = Array.from(this.connections.values()).map((conn) => ({
             id: conn.id,
             label: conn.label,
@@ -182,6 +194,11 @@ class ConnectionManager {
         }
         this.connections.delete(id);
         this.statusMap.delete(id);
+        // Clean up all reconnect-related state for removed connection
+        this.reconnectBlocked.delete(id);
+        this.reconnectingInProgress.delete(id);
+        this.reconnectAttempts.delete(id);
+        this.lastReconnectTime.delete(id);
         await this.deleteCredential(id);
         await this.deleteCredential(`${id}_agent_token`);
         await this.saveConfiguration();
@@ -233,6 +250,7 @@ class ConnectionManager {
     }
     /**
      * Connect to a remote server.
+     * Idempotent: skips if already connected or connecting.
      */
     async connect(id) {
         const config = await this.getConnection(id);
@@ -242,7 +260,13 @@ class ConnectionManager {
         if (!this.adapterFactory) {
             throw new Error('Adapter factory not registered');
         }
-        this.outputChannel.debug(`Connecting to ${id} (${config.protocol}://${config.host}:${config.port})...`);
+        // P2: Guard against duplicate connect calls
+        const currentStatus = this.getStatus(id);
+        if (currentStatus === 'connected' || currentStatus === 'connecting') {
+            this.outputChannel.debug(`Connect skipped for ${id}: already ${currentStatus}`);
+            return;
+        }
+        this.outputChannel.debug(`Connecting to ${id} (protocol: ${config.protocol})...`);
         this.updateStatus(id, 'connecting');
         let timer = null;
         try {
@@ -254,6 +278,8 @@ class ConnectionManager {
             await Promise.race([adapter.connect(config), timeoutPromise]);
             this.activeAdapters.set(id, adapter);
             this.reconnectAttempts.set(id, 0);
+            // Clear blocked flag on successful connection (manual reconnect lifts the block)
+            this.reconnectBlocked.delete(id);
             this.updateStatus(id, 'connected');
             this.outputChannel.info(`Connected to ${id}`);
             this.startKeepalive();
@@ -274,7 +300,11 @@ class ConnectionManager {
      */
     async disconnect(id) {
         this.outputChannel.debug(`Disconnecting ${id}...`);
+        // Block any pending or future auto-reconnect for this connection
+        this.reconnectBlocked.add(id);
         this.clearReconnectTimer(id);
+        // Remove from in-progress set in case disconnect is called during an active reconnect cycle
+        this.reconnectingInProgress.delete(id);
         const adapter = this.activeAdapters.get(id);
         if (adapter) {
             try {
@@ -325,6 +355,21 @@ class ConnectionManager {
      * Respects reconnect cooldown to prevent rapid-fire reconnection loops.
      */
     startReconnect(id) {
+        // Guard 1: If reconnect is blocked (manual disconnect), do not start
+        if (this.reconnectBlocked.has(id)) {
+            this.outputChannel.debug(`Reconnect blocked for ${id} (manual disconnect)`);
+            return;
+        }
+        // Guard 2: If a reconnect cycle is already in progress for this connection, skip
+        if (this.reconnectingInProgress.has(id)) {
+            this.outputChannel.debug(`Reconnect already in progress for ${id}, skipping duplicate call`);
+            return;
+        }
+        // Guard 3: If a reconnect timer is already scheduled for this connection, skip
+        if (this.reconnectTimers.has(id)) {
+            this.outputChannel.debug(`Reconnect timer already scheduled for ${id}, skipping duplicate call`);
+            return;
+        }
         const attempts = this.reconnectAttempts.get(id) ?? 0;
         if (attempts >= ConnectionManager.MAX_RECONNECT_ATTEMPTS) {
             // Check cooldown: if enough time has passed since last attempt, reset counter
@@ -337,16 +382,26 @@ class ConnectionManager {
                 return;
             }
         }
-        const delay = ConnectionManager.calcReconnectDelay(attempts);
-        this.outputChannel.debug(`Reconnecting ${id}: attempt ${attempts + 1}/${ConnectionManager.MAX_RECONNECT_ATTEMPTS}, delay ${delay}ms`);
-        this.reconnectAttempts.set(id, attempts + 1);
+        // Mark reconnect as in-progress atomically
+        this.reconnectingInProgress.add(id);
+        const currentAttempts = this.reconnectAttempts.get(id) ?? 0;
+        const delay = ConnectionManager.calcReconnectDelay(currentAttempts);
+        this.outputChannel.debug(`Reconnecting ${id}: attempt ${currentAttempts + 1}/${ConnectionManager.MAX_RECONNECT_ATTEMPTS}, delay ${delay}ms`);
+        this.reconnectAttempts.set(id, currentAttempts + 1);
         this.lastReconnectTime.set(id, Date.now());
         const timer = setTimeout(async () => {
+            // Clear the timer reference before attempting connection
+            this.reconnectTimers.delete(id);
             try {
                 await this.connect(id);
+                // Success: clear in-progress flag
+                this.reconnectingInProgress.delete(id);
             }
             catch {
-                // Reconnection failed, will try again if not exceeded max attempts
+                // Reconnection failed: clear in-progress flag, then try again
+                this.reconnectingInProgress.delete(id);
+                // Ensure no stale timer exists before recursing
+                this.clearReconnectTimer(id);
                 this.startReconnect(id);
             }
         }, delay);
@@ -366,16 +421,26 @@ class ConnectionManager {
      * Start keepalive checks for all active connections.
      * Uses parallel checks with per-connection timeout to prevent a single
      * hung connection from blocking all other keepalive checks.
+     *
+     * P2: Each keepalive cycle gets a ±5s jitter to prevent thundering herd
+     * when multiple connections are active.
      */
     startKeepalive() {
         if (this.keepaliveInterval) {
             return; // Already running
         }
-        this.keepaliveInterval = setInterval(() => {
-            const checks = Array.from(this.activeAdapters.entries()).map(([id, adapter]) => this.performKeepaliveCheck(id, adapter));
-            // Fire all checks in parallel; Promise.allSettled ensures none block others
-            Promise.allSettled(checks);
-        }, ConnectionManager.KEEPALIVE_INTERVAL);
+        const jitter = () => ConnectionManager.KEEPALIVE_INTERVAL + Math.floor(Math.random() * 10000 - 5000);
+        const scheduleNext = () => {
+            this.keepaliveInterval = setTimeout(() => {
+                const checks = Array.from(this.activeAdapters.entries()).map(([id, adapter]) => this.performKeepaliveCheck(id, adapter));
+                // Fire all checks in parallel; Promise.allSettled ensures none block others
+                Promise.allSettled(checks);
+                if (this.activeAdapters.size > 0) {
+                    scheduleNext();
+                }
+            }, jitter());
+        };
+        scheduleNext();
     }
     /**
      * Perform a single keepalive check with timeout protection.
@@ -406,7 +471,7 @@ class ConnectionManager {
      */
     stopKeepaliveIfNoConnections() {
         if (this.activeAdapters.size === 0 && this.keepaliveInterval) {
-            clearInterval(this.keepaliveInterval);
+            clearTimeout(this.keepaliveInterval);
             this.keepaliveInterval = null;
         }
     }
@@ -427,7 +492,7 @@ class ConnectionManager {
     async dispose() {
         // Clear keepalive
         if (this.keepaliveInterval) {
-            clearInterval(this.keepaliveInterval);
+            clearTimeout(this.keepaliveInterval);
             this.keepaliveInterval = null;
         }
         // Clear all reconnect timers
@@ -435,6 +500,8 @@ class ConnectionManager {
             clearTimeout(timer);
         }
         this.reconnectTimers.clear();
+        this.reconnectingInProgress.clear();
+        this.reconnectBlocked.clear();
         // Disconnect all
         for (const [id] of this.activeAdapters) {
             try {

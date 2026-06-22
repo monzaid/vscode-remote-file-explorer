@@ -50,6 +50,17 @@ class TerminalManager {
     /**
      * Ensure an SSH terminal session is ready. Auto-connects only THIS connection
      * using terminal-only mode (no SFTP/FTP). Does NOT affect other connections.
+     *
+     * DESIGN DECISION: Terminal and file-browsing share the same SSH connection
+     * via a single adapter keyed by connectionId. This is intentional — ssh2's
+     * Client can simultaneously hold both SFTP channel and Shell channel over
+     * one TCP connection. When a user browses files first (creating an SFTP
+     * session) then opens a terminal, the existing connected adapter is reused
+     * and createShell() opens a second channel on the same Client. Conversely,
+     * if a terminal is opened first via connectTerminalOnly() (sftp=null), a
+     * subsequent file-browse will fail because the adapter has no SFTP client.
+     * That scenario is handled by the file-browse code path establishing its
+     * own connection when needed — it does not depend on this method.
      */
     async ensureConnected(connectionId) {
         let adapter = this.connectionManager.getAdapter(connectionId);
@@ -66,7 +77,9 @@ class TerminalManager {
         }
         const sshAdapter = new SSHAdapter_1.SSHAdapter();
         await sshAdapter.connectTerminalOnly(config);
-        // Register the adapter so subsequent calls find it
+        // Register the adapter so subsequent calls find it.
+        // Uses the same connectionId key — terminal and file-browsing share
+        // the adapter when both are active (see DESIGN DECISION above).
         this.connectionManager.setAdapter(connectionId, sshAdapter);
         return sshAdapter;
     }

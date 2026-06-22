@@ -40,6 +40,11 @@ export declare class LocalCacheManager implements vscode.Disposable {
      */
     writeLocalHash(connectionId: string, remotePath: string, content: Uint8Array): Promise<void>;
     /**
+     * Read SHA-256 hash from the sidecar file (.localhash).
+     * Returns the hex string, or undefined if the hash file doesn't exist.
+     */
+    readLocalHash(connectionId: string, remotePath: string): Promise<string | undefined>;
+    /**
      * Read content from the local cache.
      */
     readCache(connectionId: string, remotePath: string): Promise<Uint8Array>;

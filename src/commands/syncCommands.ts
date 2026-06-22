@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as crypto from 'crypto';
 import { IProtocolAdapter } from '../core/IProtocolAdapter';
 import { LocalCacheManager } from '../core/LocalCacheManager';
 
@@ -25,6 +26,7 @@ export class SyncCommandHandler {
 
   /**
    * ⬇️ Download: Sync file from remote to local cache.
+   * P2: Compares SHA-256 hash of remote content against local cache before overwriting.
    */
   async syncFromRemote(remotePath: string): Promise<void> {
     try {
@@ -48,12 +50,23 @@ export class SyncCommandHandler {
         }
       }
 
-      // Download remote
+      // Download remote content
       const content = await this.adapter.readFile(remotePath);
 
-      // Check if local cache exists
+      // P2: Compute SHA-256 of remote content
+      const remoteHash = crypto.createHash('sha256').update(content).digest('hex');
+
+      // Check if local cache exists and compare hashes
       const cacheStat = await this.cacheManager.getCacheStat(this.connectionId, remotePath);
       if (cacheStat.exists) {
+        const localHash = await this.cacheManager.readLocalHash(this.connectionId, remotePath);
+        if (localHash && localHash === remoteHash) {
+          vscode.window.showInformationMessage(
+            `File is already up to date: ${remotePath.split('/').pop()}`,
+          );
+          return;
+        }
+
         const choice = await vscode.window.showWarningMessage(
           '检测到本地有对应的缓存文件',
           { modal: true },

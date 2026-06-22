@@ -195,6 +195,16 @@ class SidebarProvider {
         this._onDidChangeTreeData.fire(element);
     }
     /**
+     * P2 fix: Invalidate directory cache for a specific remote path.
+     * Called by RemoteFSProvider after writeFile/delete/createDirectory operations
+     * so the sidebar reflects up-to-date content instead of stale cached data.
+     */
+    invalidateCache(connectionId, remotePath) {
+        const parentPath = remotePath.substring(0, remotePath.lastIndexOf('/')) || '/';
+        const cacheKey = `${connectionId}:${parentPath}`;
+        this.dirCache.delete(cacheKey);
+    }
+    /**
      * Get the tree item for a given element.
      */
     getTreeItem(element) {
@@ -222,9 +232,16 @@ class SidebarProvider {
     }
     /**
      * Get the parent of a given element.
+     *
+     * Note: VSCode TreeView uses getParent for keyboard navigation (e.g. Alt+Left
+     * to jump to parent node). Returning null means keyboard back-navigation is
+     * unavailable. Full parent traversal would require maintaining a path-to-node
+     * map, which is deferred to a future optimization.
      */
     getParent(element) {
-        // TreeView manages this via the tree structure
+        // Known limitation: TreeView keyboard back-navigation is unavailable.
+        // The TreeView does not crash when getParent returns null — it simply
+        // does not navigate back.
         return null;
     }
     /**
@@ -296,6 +313,8 @@ class SidebarProvider {
         const cacheKey = `${connId}:${remotePath}`;
         const cached = this.dirCache.get(cacheKey);
         if (cached && (Date.now() - cached.timestamp) < SidebarProvider.DIR_CACHE_TTL) {
+            // P3 optimization note: buildDirectoryItems re-sorts on every cache hit.
+            // Future: cache the pre-sorted RemoteTreeItem[] instead of raw entries.
             return this.buildDirectoryItems(cached.entries, connId, remotePath, protocol);
         }
         try {
@@ -344,10 +363,16 @@ class SidebarProvider {
             }
             return cfg.asc ? cmp : -cmp;
         });
-        return sorted.map((entry) => {
+        const items = sorted.map((entry) => {
             const isDir = entry.stat.type === 'directory';
             return new RemoteTreeItem(entry.name, isDir ? 'directory' : 'file', isDir ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None, connId, entry.path, entry.stat, protocol);
         });
+        // P2-3: apply maxTreeItems limit from configuration
+        const maxItems = vscode.workspace.getConfiguration('remote-fs').get('maxTreeItems', 2000);
+        if (maxItems > 0 && items.length > maxItems) {
+            return items.slice(0, maxItems);
+        }
+        return items;
     }
     /**
      * Set sort config for a remote path and all its sub-directories (recursive).

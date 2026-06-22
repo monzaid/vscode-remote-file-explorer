@@ -19,6 +19,7 @@ export class SSHAdapter implements IProtocolAdapter {
   private sftp: SFTPWrapper | null = null;
   private config: ConnectionConfig | null = null;
   private connected = false;
+  private terminalOnly = false;
 
   /**
    * Establish SSH connection with SFTP (for file browsing).
@@ -67,10 +68,12 @@ export class SSHAdapter implements IProtocolAdapter {
             } else {
               this.sftp = sftp;
             }
+            this.terminalOnly = !withSftp;
             resolve();
           });
         } else {
           // Terminal-only: no SFTP at all
+          this.terminalOnly = true;
           resolve();
         }
       });
@@ -90,14 +93,13 @@ export class SSHAdapter implements IProtocolAdapter {
       if (config.authType === 'password' && config.password) {
         sshConfig.password = config.password;
       } else if (config.authType === 'key') {
-        const keyPassphrase = config.passphrase ?? config.password;
+        if (config.passphrase) {
+          sshConfig.passphrase = config.passphrase;
+        }
         if (config.privateKeyPath) {
           readFile(config.privateKeyPath)
             .then((keyData) => {
               sshConfig.privateKey = keyData;
-              if (keyPassphrase) {
-                sshConfig.passphrase = keyPassphrase;
-              }
               this.client!.connect(sshConfig);
             })
             .catch((err) => {
@@ -106,9 +108,6 @@ export class SSHAdapter implements IProtocolAdapter {
               reject(new Error(`Failed to read private key: ${err.message}`));
             });
           return;
-        }
-        if (keyPassphrase) {
-          sshConfig.passphrase = keyPassphrase;
         }
       }
 
@@ -130,10 +129,21 @@ export class SSHAdapter implements IProtocolAdapter {
       return;
     }
     return new Promise<void>((resolve) => {
-      this.client!.on('close', () => {
+      this.client!.removeAllListeners('close');
+      const timer = setTimeout(() => {
+        this.client?.destroy();
         this.client = null;
         this.sftp = null;
         this.connected = false;
+        this.terminalOnly = false;
+        resolve();
+      }, 10000);
+      this.client!.on('close', () => {
+        clearTimeout(timer);
+        this.client = null;
+        this.sftp = null;
+        this.connected = false;
+        this.terminalOnly = false;
         resolve();
       });
       this.client!.end();
@@ -144,6 +154,7 @@ export class SSHAdapter implements IProtocolAdapter {
    * Check if the connection is active.
    */
   isConnected(): boolean {
+    if (this.terminalOnly) return this.connected;
     return this.connected && this.sftp !== null;
   }
 
@@ -179,6 +190,8 @@ export class SSHAdapter implements IProtocolAdapter {
 
     return {
       type: isDirectory ? 'directory' : isSymlink ? 'symlink' : 'file',
+      // SSH SFTP protocol does not expose ctime (creation time).
+      // Using mtime as best-available approximation.
       ctime: new Date(sftpStat.mtime * 1000),
       mtime: new Date(sftpStat.mtime * 1000),
       size: sftpStat.size,
@@ -421,6 +434,20 @@ export class SSHAdapter implements IProtocolAdapter {
   }
 
   /**
+   * Validate that a generic argument does not contain dangerous shell metacharacters
+   * that could be used for command injection.
+   */
+  private validateSafeArg(value: string): void {
+    if (/[;&|`$(){}!#~<>]/.test(value)) {
+      throw new Error(`Unsafe search pattern rejected: "${value}"`);
+    }
+  }
+
+  /** P3 fix: search command timeout (ms). Large directories or stale mounts
+   * can cause grep/rg to hang indefinitely. */
+  private static readonly SEARCH_TIMEOUT = 60000; // 60s
+
+  /**
    * Search for pattern using remote grep/rg.
    */
   async search(rootPath: string, pattern: string, options?: SearchOptions): Promise<SearchResult[]> {
@@ -430,6 +457,8 @@ export class SSHAdapter implements IProtocolAdapter {
 
     // Validate rootPath against shell metacharacters
     this.validateSafePath(rootPath);
+    // Validate pattern against command injection
+    this.validateSafeArg(pattern);
 
     return new Promise((resolve, reject) => {
       let cmd: string;
@@ -448,17 +477,34 @@ export class SSHAdapter implements IProtocolAdapter {
       if (!options?.useRegex) cmd += '-F ';
       cmd += `'${escapedPattern}' '${escapedRootPath}'`;
 
+      // P3 fix: overall search timeout via Promise.race.
+      // Timer is reset on each data event to avoid killing a slow-but-active search.
+      let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
+      const resetTimeout = () => {
+        if (timeoutTimer) clearTimeout(timeoutTimer);
+        timeoutTimer = setTimeout(() => {
+          timeoutTimer = null;
+          reject(new Error(`Search timed out after ${SSHAdapter.SEARCH_TIMEOUT / 1000}s`));
+        }, SSHAdapter.SEARCH_TIMEOUT);
+      };
+      resetTimeout(); // start initial timeout
+
       this.client!.exec(cmd, (err, stream) => {
         if (err) {
+          if (timeoutTimer) clearTimeout(timeoutTimer);
           reject(new Error(`search exec failed: ${err.message}`));
           return;
         }
 
         let output = '';
         let errorOutput = '';
+        const MAX_OUTPUT_SIZE = 10 * 1024 * 1024; // 10MB
 
         stream.on('data', (data: Buffer) => {
-          output += data.toString();
+          resetTimeout(); // keep-alive: data is flowing, reset the timeout
+          if (output.length < MAX_OUTPUT_SIZE) {
+            output += data.toString();
+          }
         });
 
         stream.stderr.on('data', (data: Buffer) => {
@@ -466,6 +512,7 @@ export class SSHAdapter implements IProtocolAdapter {
         });
 
         stream.on('close', (code: number) => {
+          if (timeoutTimer) clearTimeout(timeoutTimer);
           if (code !== 0 && code !== 1) {
             // grep returns 1 when no matches found — that's fine
             if (code === 1 && !errorOutput) {

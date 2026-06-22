@@ -11,6 +11,7 @@ export declare class SyncCommandHandler {
     constructor(connectionId: string, adapter: IProtocolAdapter, cacheManager: LocalCacheManager, protocol: string);
     /**
      * ⬇️ Download: Sync file from remote to local cache.
+     * P2: Compares SHA-256 hash of remote content against local cache before overwriting.
      */
     syncFromRemote(remotePath: string): Promise<void>;
     /**

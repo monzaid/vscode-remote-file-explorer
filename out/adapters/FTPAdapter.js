@@ -104,6 +104,7 @@ class FTPAdapter {
     }
     /**
      * Disconnect from FTP server.
+     * basic-ftp: client.close() sends QUIT synchronously, no await needed.
      */
     async disconnect() {
         if (this.client) {
@@ -115,9 +116,11 @@ class FTPAdapter {
     }
     /**
      * Check if connected.
+     * P3 simplification: trust this.connected flag (set in connect/disconnect/error)
+     * instead of defensive getter call to this.client.closed.
      */
     isConnected() {
-        return this.connected && this.client !== null && !this.client.closed;
+        return this.connected && this.client !== null;
     }
     /**
      * Ensure client is available.

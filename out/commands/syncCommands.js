@@ -35,6 +35,7 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.SyncCommandHandler = void 0;
 const vscode = __importStar(require("vscode"));
+const crypto = __importStar(require("crypto"));
 /**
  * Handles inline button commands: ⬇️ Update (sync from remote) and ⬆️ Upload (sync to remote).
  */
@@ -47,6 +48,7 @@ class SyncCommandHandler {
     }
     /**
      * ⬇️ Download: Sync file from remote to local cache.
+     * P2: Compares SHA-256 hash of remote content against local cache before overwriting.
      */
     async syncFromRemote(remotePath) {
         try {
@@ -63,11 +65,18 @@ class SyncCommandHandler {
                     return;
                 }
             }
-            // Download remote
+            // Download remote content
             const content = await this.adapter.readFile(remotePath);
-            // Check if local cache exists
+            // P2: Compute SHA-256 of remote content
+            const remoteHash = crypto.createHash('sha256').update(content).digest('hex');
+            // Check if local cache exists and compare hashes
             const cacheStat = await this.cacheManager.getCacheStat(this.connectionId, remotePath);
             if (cacheStat.exists) {
+                const localHash = await this.cacheManager.readLocalHash(this.connectionId, remotePath);
+                if (localHash && localHash === remoteHash) {
+                    vscode.window.showInformationMessage(`File is already up to date: ${remotePath.split('/').pop()}`);
+                    return;
+                }
                 const choice = await vscode.window.showWarningMessage('检测到本地有对应的缓存文件', { modal: true }, '下载覆盖', '保留本地');
                 if (choice !== '下载覆盖') {
                     return;

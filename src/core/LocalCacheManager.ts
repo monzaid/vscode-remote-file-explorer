@@ -43,26 +43,32 @@ export class LocalCacheManager implements vscode.Disposable {
    * Get the local cache path for a remote file.
    */
   getCachePath(connectionId: string, remotePath: string): string {
-    // P1-4: Reject paths containing ".." to prevent traversal
-    if (remotePath.includes('..')) {
-      throw new Error(`Invalid remotePath: ".." is not allowed.`);
+    // P1-4: Unicode normalization + encoded traversal guard
+    const normalized = remotePath.normalize('NFC');
+    if (normalized.includes('..') || normalized.includes('%2e%2e') || normalized.includes('%2E%2E')) {
+      throw new Error(`Invalid remotePath: path traversal not allowed.`);
     }
 
     // P2-4: Use LRU cache to avoid repeated regex replacement
-    const cacheKey = `${connectionId}::${remotePath}`;
+    const cacheKey = `${connectionId}::${normalized}`;
     const cached = this.pathCache.get(cacheKey);
     if (cached !== undefined) {
+      // P2 fix: true LRU — move accessed entry to end of Map on cache hit
+      this.pathCache.delete(cacheKey);
+      this.pathCache.set(cacheKey, cached);
       return cached;
     }
 
     // Normalize remote path: replace / with path separator, remove leading /
-    const normalizedPath = remotePath.replace(/^\//, '').replace(/\//g, path.sep);
+    const normalizedPath = normalized.replace(/^\//, '').replace(/\//g, path.sep);
     const result = path.join(this.cacheRoot, connectionId, normalizedPath);
 
     // P1-4: Validate the resolved path stays within cacheRoot
     this.validatePath(result);
 
-    // P2-4: Store in LRU cache, evict half if over limit
+    // P2-4: Store in LRU cache, evict least-recently-used half if over limit.
+    // Since getCachePath moves entries to end on access, the first half of the
+    // Map's insertion order are truly the least-recently-used entries.
     if (this.pathCache.size >= LocalCacheManager.PATH_CACHE_MAX) {
       const entries = [...this.pathCache.keys()];
       const half = Math.floor(entries.length / 2);
@@ -135,6 +141,20 @@ export class LocalCacheManager implements vscode.Disposable {
     const hash = crypto.createHash('sha256').update(content).digest('hex');
     await fs.mkdir(path.dirname(hashPath), { recursive: true });
     await fs.writeFile(hashPath, hash, 'utf-8');
+  }
+
+  /**
+   * Read SHA-256 hash from the sidecar file (.localhash).
+   * Returns the hex string, or undefined if the hash file doesn't exist.
+   */
+  async readLocalHash(connectionId: string, remotePath: string): Promise<string | undefined> {
+    try {
+      const cachePath = this.getCachePath(connectionId, remotePath);
+      const hashPath = cachePath + '.localhash';
+      return await fs.readFile(hashPath, 'utf-8');
+    } catch {
+      return undefined;
+    }
   }
 
   /**

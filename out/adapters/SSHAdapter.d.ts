@@ -8,6 +8,7 @@ export declare class SSHAdapter implements IProtocolAdapter {
     private sftp;
     private config;
     private connected;
+    private terminalOnly;
     /**
      * Establish SSH connection with SFTP (for file browsing).
      */
@@ -73,6 +74,14 @@ export declare class SSHAdapter implements IProtocolAdapter {
      * Allowed: alphanumeric, underscore, dash, dot, forward slash, tilde, spaces, asterisks (globs).
      */
     private validateSafePath;
+    /**
+     * Validate that a generic argument does not contain dangerous shell metacharacters
+     * that could be used for command injection.
+     */
+    private validateSafeArg;
+    /** P3 fix: search command timeout (ms). Large directories or stale mounts
+     * can cause grep/rg to hang indefinitely. */
+    private static readonly SEARCH_TIMEOUT;
     /**
      * Search for pattern using remote grep/rg.
      */

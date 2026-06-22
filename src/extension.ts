@@ -8,6 +8,8 @@ import { RemoteFSProvider } from './providers/RemoteFSProvider';
 import { TerminalManager } from './terminal/TerminalManager';
 import { SearchEngine } from './search/SearchEngine';
 import { SSHAdapter } from './adapters/SSHAdapter';
+import { FTPAdapter } from './adapters/FTPAdapter';
+import { AgentAdapter } from './adapters/AgentAdapter';
 import { ConnectionDialog } from './ui/ConnectionDialog';
 import { registerAllCommands, setCommandDeps } from './commands/commandRegistry';
 import { registerMenuCommands } from './commands/menuCommands';
@@ -96,7 +98,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       switch (protocol) {
         case 'ssh':
           return new SSHAdapter();
-        // FTP and Agent adapters will be added in subsequent waves
+        case 'ftp':
+          return new FTPAdapter();
+        case 'agent':
+          return new AgentAdapter();
         default:
           throw new Error(`Unsupported protocol: ${protocol}`);
       }

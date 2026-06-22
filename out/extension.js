@@ -45,6 +45,8 @@ const RemoteFSProvider_1 = require("./providers/RemoteFSProvider");
 const TerminalManager_1 = require("./terminal/TerminalManager");
 const SearchEngine_1 = require("./search/SearchEngine");
 const SSHAdapter_1 = require("./adapters/SSHAdapter");
+const FTPAdapter_1 = require("./adapters/FTPAdapter");
+const AgentAdapter_1 = require("./adapters/AgentAdapter");
 const ConnectionDialog_1 = require("./ui/ConnectionDialog");
 const commandRegistry_1 = require("./commands/commandRegistry");
 const menuCommands_1 = require("./commands/menuCommands");
@@ -117,7 +119,10 @@ async function activate(context) {
             switch (protocol) {
                 case 'ssh':
                     return new SSHAdapter_1.SSHAdapter();
-                // FTP and Agent adapters will be added in subsequent waves
+                case 'ftp':
+                    return new FTPAdapter_1.FTPAdapter();
+                case 'agent':
+                    return new AgentAdapter_1.AgentAdapter();
                 default:
                     throw new Error(`Unsupported protocol: ${protocol}`);
             }

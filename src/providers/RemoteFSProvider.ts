@@ -95,12 +95,14 @@ export class RemoteFSProvider implements vscode.FileSystemProvider {
   /**
    * Parse remote URI to extract path.
    * URI format: remote-{protocol}://connection-id/path/to/file
+   * P2 fix: validate authority to prevent injection via malicious URIs.
    */
   private parseUri(uri: vscode.Uri): { connectionId: string; remotePath: string } {
-    return {
-      connectionId: uri.authority,
-      remotePath: uri.path || '/',
-    };
+    const connectionId = uri.authority;
+    if (!connectionId || !/^conn-\d+-[a-z0-9]+$/.test(connectionId)) {
+      throw vscode.FileSystemError.Unavailable(uri);
+    }
+    return { connectionId, remotePath: uri.path || '/' };
   }
 
   /**
@@ -149,6 +151,7 @@ export class RemoteFSProvider implements vscode.FileSystemProvider {
 
   /**
    * List directory contents.
+   * P2-3: apply maxTreeItems limit to prevent overwhelming the UI.
    */
   async readDirectory(uri: vscode.Uri): Promise<[string, vscode.FileType][]> {
     const { remotePath } = this.parseUri(uri);
@@ -157,7 +160,7 @@ export class RemoteFSProvider implements vscode.FileSystemProvider {
       `readDir:${remotePath}`,
     );
 
-    return entries.map((entry) => {
+    const result: [string, vscode.FileType][] = entries.map((entry) => {
       const type =
         entry.stat.type === 'directory'
           ? vscode.FileType.Directory
@@ -167,10 +170,18 @@ export class RemoteFSProvider implements vscode.FileSystemProvider {
 
       return [entry.name, type] as [string, vscode.FileType];
     });
+
+    // P2-3: apply maxTreeItems limit
+    if (RemoteFSProvider.maxTreeItems > 0 && result.length > RemoteFSProvider.maxTreeItems) {
+      return result.slice(0, RemoteFSProvider.maxTreeItems);
+    }
+    return result;
   }
 
   /**
    * Read file contents. Cache-first strategy.
+   * P1: download-first on cache miss (no separate stat call — saves 1 RTT).
+   * Size checks use content.byteLength from the download result.
    */
   async readFile(uri: vscode.Uri): Promise<Uint8Array> {
     const { remotePath } = this.parseUri(uri);
@@ -182,22 +193,21 @@ export class RemoteFSProvider implements vscode.FileSystemProvider {
       // Cache miss or read error, fall through to remote download
     }
 
-    // Get remote file info for size check
-    let remoteStat: RemoteFileStat;
+    // Download (single network round-trip; no preceding stat call)
+    let content: Uint8Array;
     try {
-      remoteStat = await this.enqueueRemoteOp(
-        () => this.adapter.stat(remotePath),
-        `stat:${remotePath}`,
+      content = await this.enqueueRemoteOp(
+        () => this.adapter.readFile(remotePath),
+        `readFile:${remotePath}`,
       );
     } catch (err) {
       throw vscode.FileSystemError.FileNotFound(uri);
     }
 
-    // Size checks
-    if (remoteStat.size > RemoteFSProvider.maxFileSize) {
-      // File too large — offer download option
+    // Post-download size checks (uses content.byteLength, no extra network cost)
+    if (content.byteLength > RemoteFSProvider.maxFileSize) {
       const action = await vscode.window.showErrorMessage(
-        `File is too large (${(remoteStat.size / 1048576).toFixed(1)}MB). Maximum is ${(RemoteFSProvider.maxFileSize / 1048576).toFixed(0)}MB.`,
+        `File too large (${(content.byteLength / 1048576).toFixed(1)}MB). Max ${(RemoteFSProvider.maxFileSize / 1048576).toFixed(0)}MB.`,
         'Download to Local',
         'Cancel',
       );
@@ -206,20 +216,16 @@ export class RemoteFSProvider implements vscode.FileSystemProvider {
           defaultUri: vscode.Uri.file(path.basename(remotePath)),
         });
         if (saveUri) {
-          const content = await this.enqueueRemoteOp(
-            () => this.adapter.readFile(remotePath),
-            `readFile:${remotePath}`,
-          );
           await vscode.workspace.fs.writeFile(saveUri, content);
-          vscode.window.showInformationMessage(`File downloaded to ${saveUri.fsPath}`);
+          vscode.window.showInformationMessage(`Downloaded to ${saveUri.fsPath}`);
         }
       }
-      throw vscode.FileSystemError.FileNotFound(uri); // Prevent opening
+      throw vscode.FileSystemError.FileNotFound(uri);
     }
 
-    if (remoteStat.size > RemoteFSProvider.warnFileSize) {
+    if (content.byteLength > RemoteFSProvider.warnFileSize) {
       const proceed = await vscode.window.showWarningMessage(
-        `File is ${(remoteStat.size / 1048576).toFixed(1)}MB. Opening large files may be slow.`,
+        `File is ${(content.byteLength / 1048576).toFixed(1)}MB. May be slow.`,
         'Open Anyway',
         'Cancel',
       );
@@ -228,17 +234,8 @@ export class RemoteFSProvider implements vscode.FileSystemProvider {
       }
     }
 
-    // Download and cache
-    const content = await this.enqueueRemoteOp(
-      () => this.adapter.readFile(remotePath),
-      `readFile:${remotePath}`,
-    );
-
-    // Only cache files under maxFileSize
-    if (remoteStat.size <= RemoteFSProvider.maxFileSize) {
-      await this.cacheManager.writeCache(this.connectionId, remotePath, content);
-    }
-
+    // Cache downloaded content
+    await this.cacheManager.writeCache(this.connectionId, remotePath, content);
     return content;
   }
 
@@ -290,6 +287,9 @@ export class RemoteFSProvider implements vscode.FileSystemProvider {
     );
 
     // Move cache
+    // P3 optimization note: for same-connectionId renames, a direct fs.rename
+    // on the cache file would avoid read-write-delete memory overhead. However,
+    // rename is not a high-frequency operation, so current approach is acceptable.
     const oldCache = await this.cacheManager.getCacheStat(this.connectionId, oldPath);
     if (oldCache.exists) {
       const content = await this.cacheManager.readCache(this.connectionId, oldPath);
@@ -317,11 +317,30 @@ export class RemoteFSProvider implements vscode.FileSystemProvider {
   }
 
   /**
-   * Watch for file changes. Currently returns an empty disposable
-   * since real-time watching is not implemented.
+   * Watch for file changes via polling fallback.
+   * P2 fix: implements 30s polling to detect remote file changes.
+   * Real-time inotify/kqueue is not available over remote protocols.
    */
-  watch(_uri: vscode.Uri, _options: { readonly recursive: boolean; readonly excludes: readonly string[] }): vscode.Disposable {
-    return new vscode.Disposable(() => {});
+  watch(uri: vscode.Uri, _options: { readonly recursive: boolean; readonly excludes: readonly string[] }): vscode.Disposable {
+    const { remotePath } = this.parseUri(uri);
+    let interval: ReturnType<typeof setInterval> | null = setInterval(async () => {
+      try {
+        const remoteStat = await this.adapter.stat(remotePath);
+        const cacheStat = await this.cacheManager.getCacheStat(this.connectionId, remotePath);
+        if (cacheStat.exists && remoteStat.mtime.getTime() !== cacheStat.mtime?.getTime()) {
+          this._onDidChangeFile.fire([{ type: vscode.FileChangeType.Changed, uri }]);
+        }
+      } catch {
+        // stat failed, file may not exist — skip this poll cycle
+      }
+    }, 30000); // 30s polling interval
+
+    return new vscode.Disposable(() => {
+      if (interval) {
+        clearInterval(interval);
+        interval = null;
+      }
+    });
   }
 
   /**

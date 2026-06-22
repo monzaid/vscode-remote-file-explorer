@@ -19,10 +19,13 @@ export declare class FTPAdapter implements IProtocolAdapter {
     connect(config: ConnectionConfig): Promise<void>;
     /**
      * Disconnect from FTP server.
+     * basic-ftp: client.close() sends QUIT synchronously, no await needed.
      */
     disconnect(): Promise<void>;
     /**
      * Check if connected.
+     * P3 simplification: trust this.connected flag (set in connect/disconnect/error)
+     * instead of defensive getter call to this.client.closed.
      */
     isConnected(): boolean;
     /**

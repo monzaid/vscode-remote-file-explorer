@@ -15,6 +15,10 @@ export declare class AgentAdapter implements IProtocolAdapter {
     private allowLocalhost;
     constructor();
     /**
+     * P2-1: Lazily create or return existing connection-pooled agents.
+     */
+    private getOrCreateAgents;
+    /**
      * P1-2: Validate a file path to prevent path traversal attacks.
      * Rejects paths containing '..', null bytes, or exceeding maximum length.
      */

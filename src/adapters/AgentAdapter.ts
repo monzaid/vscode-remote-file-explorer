@@ -27,25 +27,37 @@ export class AgentAdapter implements IProtocolAdapter {
   private token: string = '';
 
   // P2-3: Connection pool agents for HTTP keep-alive reuse
-  private httpAgent: http.Agent;
-  private httpsAgent: https.Agent;
+  // P2-1: Agents are lazily created on first connect to avoid idle pools
+  private httpAgent: http.Agent | null = null;
+  private httpsAgent: https.Agent | null = null;
 
   // P1-3: Security flags
   private agentSecure: boolean = true;
   private allowLocalhost: boolean = false;
 
   constructor() {
-    // P2-3: Create connection-pooled agents with keepAlive
-    this.httpAgent = new http.Agent({
-      keepAlive: true,
-      maxSockets: 10,
-      keepAliveMsecs: 30000,
-    });
-    this.httpsAgent = new https.Agent({
-      keepAlive: true,
-      maxSockets: 10,
-      keepAliveMsecs: 30000,
-    });
+    // P2-1: Agents created lazily in getOrCreateAgents()
+  }
+
+  /**
+   * P2-1: Lazily create or return existing connection-pooled agents.
+   */
+  private getOrCreateAgents(): { httpAgent: http.Agent; httpsAgent: https.Agent } {
+    if (!this.httpAgent) {
+      this.httpAgent = new http.Agent({
+        keepAlive: true,
+        maxSockets: 10,
+        keepAliveMsecs: 30000,
+      });
+    }
+    if (!this.httpsAgent) {
+      this.httpsAgent = new https.Agent({
+        keepAlive: true,
+        maxSockets: 10,
+        keepAliveMsecs: 30000,
+      });
+    }
+    return { httpAgent: this.httpAgent, httpsAgent: this.httpsAgent };
   }
 
   /**
@@ -65,6 +77,12 @@ export class AgentAdapter implements IProtocolAdapter {
     // Reject path traversal sequences
     if (path.includes('..')) {
       throw new Error('Path validation failed: path traversal detected (..)');
+    }
+
+    // P2-2: Reject Windows absolute paths (C:\, \\server\share)
+    // Agent servers may run on Windows; these paths could bypass path restrictions.
+    if (/^[a-zA-Z]:[\\/]/.test(path) || path.startsWith('\\\\')) {
+      throw new Error('Path validation failed: Windows absolute paths not allowed');
     }
 
     // Reject excessively long paths
@@ -131,6 +149,41 @@ export class AgentAdapter implements IProtocolAdapter {
             );
           }
         }
+        // P2-3: 169.254.0.0/16 (link-local, APIPA)
+        if (parts[0] === 169 && parts[1] === 254) {
+          if (!this.allowLocalhost) {
+            throw new Error(
+              'Host validation failed: connection to link-local network (169.254.0.0/16) is not allowed. ' +
+              'Set remote-fs.agent.allowLocalhost to true to enable.'
+            );
+          }
+        }
+      }
+    }
+
+    // P2-3: IPv6 private / link-local address check (simplified prefix matching)
+    // ULA: fc00::/7  — starts with "fc" or "fd"
+    // Link-local: fe80::/10 — starts with "fe8", "fe9", "fea", "feb"
+    const lowerHost = normalizedHost.toLowerCase();
+    if (lowerHost.startsWith('[') && lowerHost.endsWith(']')) {
+      const ipv6 = lowerHost.slice(1, -1);
+      // IPv6 ULA (fc00::/7)
+      if (/^fc/i.test(ipv6) || /^fd/i.test(ipv6)) {
+        if (!this.allowLocalhost) {
+          throw new Error(
+            'Host validation failed: connection to IPv6 ULA (fc00::/7) is not allowed. ' +
+            'Set remote-fs.agent.allowLocalhost to true to enable.'
+          );
+        }
+      }
+      // IPv6 link-local (fe80::/10)
+      if (/^fe[89ab]/i.test(ipv6)) {
+        if (!this.allowLocalhost) {
+          throw new Error(
+            'Host validation failed: connection to IPv6 link-local (fe80::/10) is not allowed. ' +
+            'Set remote-fs.agent.allowLocalhost to true to enable.'
+          );
+        }
       }
     }
 
@@ -138,6 +191,12 @@ export class AgentAdapter implements IProtocolAdapter {
     if (normalizedHost.includes('\0') || normalizedHost.includes('\n') || normalizedHost.includes('\r')) {
       throw new Error('Host validation failed: host contains invalid control characters');
     }
+
+    // P2-3: DNS rebinding defense note —
+    // This validation happens once at connect() time. DNS rebinding attacks
+    // could cause a hostname to resolve to a private IP after validation.
+    // For production deployments, consider re-resolving the hostname before
+    // each request and validating the resolved IP address against this list.
   }
 
   /**
@@ -219,6 +278,18 @@ export class AgentAdapter implements IProtocolAdapter {
     this.connected = false;
     this.config = null;
     this.token = '';
+
+    // P2-1: Destroy connection pool agents to prevent socket leaks
+    // on multiple connect/disconnect cycles. Agents will be recreated
+    // lazily on the next connect() call.
+    if (this.httpAgent) {
+      this.httpAgent.destroy();
+      this.httpAgent = null;
+    }
+    if (this.httpsAgent) {
+      this.httpsAgent.destroy();
+      this.httpsAgent = null;
+    }
   }
 
   /**
@@ -254,6 +325,8 @@ export class AgentAdapter implements IProtocolAdapter {
         headers['Authorization'] = `Bearer ${this.token}`;
       }
 
+      const agents = this.getOrCreateAgents();
+
       const options: http.RequestOptions = {
         method,
         hostname: url.hostname,
@@ -262,10 +335,14 @@ export class AgentAdapter implements IProtocolAdapter {
         headers,
         timeout: 30000,
         // P2-3: Use connection-pooled agent for keep-alive reuse
-        agent: isHttps ? this.httpsAgent : this.httpAgent,
+        agent: isHttps ? agents.httpsAgent : agents.httpAgent,
       };
 
       const req = httpModule.request(options, (res) => {
+        // SECURITY: Redirects only change path, never host.
+        // The original baseUrl host (validated in connect()) is always used.
+        // If future changes allow redirect to different hosts, re-validate host here.
+
         // P2-9: Handle redirects (301, 302, 307, 308)
         if (
           res.statusCode &&
@@ -294,6 +371,23 @@ export class AgentAdapter implements IProtocolAdapter {
             .then(resolve)
             .catch(reject);
           return;
+        }
+
+        // P3: Check Content-Length header before accumulating response body.
+        // Reject early if the declared size exceeds the limit to avoid
+        // unnecessary memory allocation and data transfer.
+        const contentLength = res.headers['content-length'];
+        if (contentLength) {
+          const len = parseInt(contentLength, 10);
+          if (!isNaN(len) && len > MAX_RESPONSE_SIZE) {
+            req.destroy();
+            reject(
+              new Error(
+                `Agent API response Content-Length ${len} exceeds maximum ${MAX_RESPONSE_SIZE} bytes`
+              )
+            );
+            return;
+          }
         }
 
         // P2-9: Track response size to prevent memory exhaustion

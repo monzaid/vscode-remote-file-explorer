@@ -27,10 +27,12 @@ export declare class ConcurrencyController {
     /**
      * Execute a function and decrement activeCount on completion.
      * After completion, attempts to dequeue the next waiting operation.
+     * Protected against dequeue() failures that could otherwise stall the queue.
      */
     private execute;
     /**
      * Dequeue and execute the next waiting operation, if any.
+     * Protected against reject() failures to prevent queue stall.
      */
     private dequeue;
 }

@@ -55,6 +55,12 @@ export declare class SidebarProvider implements vscode.TreeDataProvider<RemoteTr
      */
     refresh(element?: RemoteTreeItem): void;
     /**
+     * P2 fix: Invalidate directory cache for a specific remote path.
+     * Called by RemoteFSProvider after writeFile/delete/createDirectory operations
+     * so the sidebar reflects up-to-date content instead of stale cached data.
+     */
+    invalidateCache(connectionId: string, remotePath: string): void;
+    /**
      * Get the tree item for a given element.
      */
     getTreeItem(element: RemoteTreeItem): vscode.TreeItem;
@@ -64,6 +70,11 @@ export declare class SidebarProvider implements vscode.TreeDataProvider<RemoteTr
     getChildren(element?: RemoteTreeItem): Promise<RemoteTreeItem[]>;
     /**
      * Get the parent of a given element.
+     *
+     * Note: VSCode TreeView uses getParent for keyboard navigation (e.g. Alt+Left
+     * to jump to parent node). Returning null means keyboard back-navigation is
+     * unavailable. Full parent traversal would require maintaining a path-to-node
+     * map, which is deferred to a future optimization.
      */
     getParent(element: RemoteTreeItem): vscode.ProviderResult<RemoteTreeItem>;
     /**
