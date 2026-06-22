@@ -137,6 +137,11 @@
         "command": "remote-fs.downloadToLocal",
         "title": "Download",
         "icon": "$(desktop-download)"
+      },
+      {
+        "command": "remote-fs.revealInExplorer",
+        "title": "Reveal in File Explorer",
+        "icon": "$(folder-opened)"
       }
     ],
     "menus": {
@@ -160,9 +165,17 @@
         { "command": "remote-fs.copyPath", "when": "viewItem =~ /^(file|directory)$/ && view == remote-fs-explorer", "group": "4_common" },
         { "command": "remote-fs.downloadToLocal", "when": "viewItem == file && view == remote-fs-explorer", "group": "4_common" },
         { "command": "remote-fs.syncCurrentFile", "when": "viewItem == file && view == remote-fs-explorer", "group": "inline@1" },
-        { "command": "remote-fs.uploadCurrentFile", "when": "viewItem == file && view == remote-fs-explorer", "group": "inline@2" }
+        { "command": "remote-fs.uploadCurrentFile", "when": "viewItem == file && view == remote-fs-explorer", "group": "inline@2" },
+        { "command": "remote-fs.revealInExplorer", "when": "viewItem == file && view == remote-fs-explorer", "group": "4_common" }
       ]
     },
+    "keybindings": [
+      {
+        "command": "remote-fs.revealInExplorer",
+        "key": "shift+alt+r",
+        "when": "view == remote-fs-explorer && viewItem == file"
+      }
+    ],
     "configuration": {
       "title": "Remote File Explorer",
       "properties": {
