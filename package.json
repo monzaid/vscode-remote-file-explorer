@@ -142,6 +142,16 @@
         "command": "remote-fs.sortTree",
         "title": "Sort",
         "icon": "$(list-filter)"
+      },
+      {
+        "command": "remote-fs.deleteRemotePath",
+        "title": "Remove Remote Path",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "remote-fs.addToRemotePaths",
+        "title": "Add to Remote Paths",
+        "icon": "$(add)"
       }
     ],
     "menus": {
@@ -158,7 +168,9 @@
         { "command": "remote-fs.openTerminal", "when": "viewItem == connection && view == remote-fs-explorer", "group": "inline@3" },
         { "command": "remote-fs.manageConnections", "when": "viewItem == connection && view == remote-fs-explorer", "group": "1_connection" },
         { "command": "remote-fs.sortTree", "when": "viewItem == mountedPath && view == remote-fs-explorer", "group": "inline@1" },
+        { "command": "remote-fs.deleteRemotePath", "when": "viewItem == mountedPath && view == remote-fs-explorer", "group": "inline@2" },
         { "command": "remote-fs.newFile", "when": "viewItem == directory && view == remote-fs-explorer", "group": "inline@1" },
+        { "command": "remote-fs.addToRemotePaths", "when": "viewItem == directory && view == remote-fs-explorer", "group": "1_directory" },
         { "command": "remote-fs.newFolder", "when": "viewItem == directory && view == remote-fs-explorer", "group": "inline@2" },
         { "command": "remote-fs.refresh", "when": "viewItem == directory && view == remote-fs-explorer", "group": "2_directory" },
         { "command": "remote-fs.deleteFile", "when": "viewItem =~ /^(file|directory)$/ && view == remote-fs-explorer", "group": "3_common" },

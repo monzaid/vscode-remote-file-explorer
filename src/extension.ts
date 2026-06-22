@@ -245,6 +245,45 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }),
     );
 
+    // Delete a remote path (mountedPath inline button)
+    context.subscriptions.push(
+      vscode.commands.registerCommand('remote-fs.deleteRemotePath', async (node?: { connectionId?: string; remotePath?: string; label?: string }) => {
+        if (!node?.connectionId || !node?.remotePath) return;
+        const name = node.label || node.remotePath.split('/').pop() || node.remotePath;
+        const confirm = await vscode.window.showWarningMessage(
+          `Delete remote path "${name}"?`,
+          { modal: true },
+          'Delete',
+          'Cancel',
+        );
+        if (confirm !== 'Delete') return;
+        const conn = await connectionManager!.getConnection(node.connectionId);
+        if (!conn) return;
+        conn.mountedPaths = conn.mountedPaths.filter(mp => mp.remotePath !== node.remotePath);
+        await connectionManager!.updateConnection(node.connectionId, conn);
+        sidebarProvider!.refresh();
+      }),
+    );
+
+    // Add directory to remote path config (directory context menu)
+    context.subscriptions.push(
+      vscode.commands.registerCommand('remote-fs.addToRemotePaths', async (node?: { connectionId?: string; remotePath?: string; label?: string }) => {
+        if (!node?.connectionId || !node?.remotePath) return;
+        const conn = await connectionManager!.getConnection(node.connectionId);
+        if (!conn) return;
+        const existing = conn.mountedPaths.find(mp => mp.remotePath === node.remotePath);
+        if (existing) {
+          vscode.window.showInformationMessage(`"${node.remotePath}" is already in Remote Paths.`);
+          return;
+        }
+        const pathLabel = node.label || node.remotePath.split('/').pop() || node.remotePath;
+        conn.mountedPaths.push({ remotePath: node.remotePath, label: pathLabel });
+        await connectionManager!.updateConnection(node.connectionId, conn);
+        sidebarProvider!.refresh();
+        vscode.window.showInformationMessage(`Added "${pathLabel}" to Remote Paths.`);
+      }),
+    );
+
     context.subscriptions.push(
       vscode.commands.registerCommand('remote-fs.manageConnections', async () => {
         const connections = connectionManager!.getAllConnections();
