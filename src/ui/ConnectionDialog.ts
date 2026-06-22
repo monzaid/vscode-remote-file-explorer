@@ -160,21 +160,17 @@ export class ConnectionDialog {
     let editing = true;
 
     while (editing) {
+      const authDesc = updated.authType === 'key' && updated.privateKeyPath
+        ? `$(key) Key: ${updated.privateKeyPath.split(/[\\/]/).pop()}`
+        : updated.authType === 'password'
+          ? '$(key) Password'
+          : '$(edit) Click to change';
       const items: vscode.QuickPickItem[] = [
         { label: `Label: ${updated.label}`, description: '$(edit) Click to change' },
         { label: `Host: ${updated.host}`, description: `$(edit) Click to change` },
         { label: `Port: ${updated.port}`, description: `$(edit) Click to change` },
         { label: `Username: ${updated.username}`, description: `$(edit) Click to change` },
-        { label: `Auth: ${updated.authType}`, description: updated.authType === 'key' && updated.privateKeyPath ? `Key: ${updated.privateKeyPath}` : '$(edit) Click to change' },
-        ...(updated.authType === 'password'
-          ? [{ label: 'Change Password', description: '$(key) Update stored password' } as vscode.QuickPickItem]
-          : []),
-        ...(updated.authType === 'key'
-          ? [
-              { label: `Key: ${updated.privateKeyPath || '(not set)'}`, description: '$(folder) Select private key file' } as vscode.QuickPickItem,
-              { label: 'Change Passphrase', description: '$(key) Update passphrase' } as vscode.QuickPickItem,
-            ]
-          : []),
+        { label: '$(shield) Manage Auth', description: authDesc },
         { label: '$(folder) Manage Remote Paths', description: `${updated.mountedPaths.length} path(s) configured` },
         { label: '$(check) Done Editing', description: 'Save changes' },
       ];
@@ -198,36 +194,8 @@ export class ConnectionDialog {
       } else if (choice.startsWith('Username:')) {
         const v = await vscode.window.showInputBox({ prompt: 'New username', value: updated.username });
         if (v) updated.username = v;
-      } else if (choice.startsWith('Auth:')) {
-        const newAuth = await vscode.window.showQuickPick(
-          [
-            { label: 'Password', description: 'Authenticate with password' },
-            { label: 'Private Key', description: 'Authenticate with SSH key' },
-          ],
-          { placeHolder: 'Select authentication method' },
-        );
-        if (newAuth) {
-          updated.authType = newAuth.label === 'Private Key' ? 'key' : 'password';
-          if (updated.authType === 'password') {
-            updated.privateKeyPath = undefined;
-            updated.passphrase = undefined;
-          }
-        }
-      } else if (choice.startsWith('Change Password') || choice.startsWith('Change Passphrase')) {
-        const v = await vscode.window.showInputBox({ prompt: 'New password/passphrase', password: true });
-        if (v !== undefined) {
-          if (choice.startsWith('Change Passphrase')) {
-            updated.passphrase = v;
-          } else {
-            updated.password = v;
-          }
-        }
-      } else if (choice.startsWith('Key:')) {
-        const keyUris = await vscode.window.showOpenDialog({
-          canSelectFiles: true, canSelectMany: false,
-          openLabel: 'Select Private Key', filters: { 'All Files': ['*'] },
-        });
-        if (keyUris && keyUris.length > 0) updated.privateKeyPath = keyUris[0].fsPath;
+      } else if (choice.includes('Manage Auth')) {
+        await this.manageAuth(updated);
       } else if (choice.includes('Manage Remote Paths')) {
         await this.manageRemotePaths(updated);
       } else if (choice.includes('Done')) {
@@ -236,6 +204,76 @@ export class ConnectionDialog {
     }
 
     return updated;
+  }
+
+  /**
+   * Sub-dialog for managing authentication: switch type, set password/key/passphrase.
+   */
+  private async manageAuth(config: ConnectionConfig): Promise<void> {
+    let managing = true;
+    while (managing) {
+      const authLabel = config.authType === 'key'
+        ? `$(key) Private Key`
+        : `$(key) Password`;
+      const items: vscode.QuickPickItem[] = [
+        { label: `Auth Type: ${config.authType}`, description: '$(edit) Switch between password and key' },
+        ...(config.authType === 'password'
+          ? [{ label: `Password: ${config.password ? '$(check) Set' : '$(circle-slash) Not set'}`, description: '$(edit) Change password' }]
+          : []),
+        ...(config.authType === 'key'
+          ? [
+              { label: `Key File: ${config.privateKeyPath || '$(circle-slash) Not set'}`, description: '$(folder) Select private key' },
+              { label: `Passphrase: ${config.passphrase ? '$(check) Set' : '$(circle-slash) Not set'}`, description: '$(edit) Change passphrase' },
+            ]
+          : []),
+        { label: '$(arrow-left) Back', description: 'Return to connection settings' },
+      ];
+
+      const chosen = await vscode.window.showQuickPick(items, {
+        placeHolder: `Manage authentication for "${config.label}"`,
+      });
+
+      if (!chosen || chosen.label.includes('Back')) {
+        managing = false;
+        continue;
+      }
+
+      const choice = chosen.label;
+      if (choice.startsWith('Auth Type:')) {
+        const newAuth = await vscode.window.showQuickPick(
+          [
+            { label: 'Password', description: 'Authenticate with password' },
+            { label: 'Private Key', description: 'Authenticate with SSH key' },
+          ],
+          { placeHolder: 'Select authentication method' },
+        );
+        if (newAuth) {
+          config.authType = newAuth.label === 'Private Key' ? 'key' : 'password';
+          if (config.authType === 'password') {
+            config.privateKeyPath = undefined;
+            config.passphrase = undefined;
+          }
+        }
+      } else if (choice.startsWith('Password:')) {
+        const v = await vscode.window.showInputBox({
+          prompt: 'Enter password', password: true,
+          value: config.password || '',
+        });
+        if (v !== undefined) config.password = v;
+      } else if (choice.startsWith('Key File:')) {
+        const keyUris = await vscode.window.showOpenDialog({
+          canSelectFiles: true, canSelectMany: false,
+          openLabel: 'Select Private Key', filters: { 'All Files': ['*'] },
+        });
+        if (keyUris && keyUris.length > 0) config.privateKeyPath = keyUris[0].fsPath;
+      } else if (choice.startsWith('Passphrase:')) {
+        const v = await vscode.window.showInputBox({
+          prompt: 'Enter passphrase', password: true,
+          value: config.passphrase || '',
+        });
+        if (v !== undefined) config.passphrase = v;
+      }
+    }
   }
 
   /**
