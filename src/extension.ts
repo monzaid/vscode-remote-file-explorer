@@ -245,6 +245,31 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }),
     );
 
+    // Rename a remote path (mountedPath inline button)
+    context.subscriptions.push(
+      vscode.commands.registerCommand('remote-fs.renameRemotePath', async (node?: { connectionId?: string; remotePath?: string; label?: string }) => {
+        if (!node?.connectionId || !node?.remotePath) return;
+        const curName = node.label || node.remotePath.split('/').pop() || node.remotePath;
+        const newName = await vscode.window.showInputBox({
+          prompt: 'Rename remote path',
+          value: curName,
+          validateInput: (v) => {
+            if (!v) return 'Name cannot be empty';
+            if (v.includes('/') || v.includes('\\')) return 'Name cannot contain path separators';
+            if (v === curName) return undefined; // skip save if unchanged
+            return undefined;
+          },
+        });
+        if (!newName || newName === curName) return;
+        const conn = await connectionManager!.getConnection(node.connectionId);
+        if (!conn) return;
+        const mp = conn.mountedPaths.find(m => m.remotePath === node.remotePath);
+        if (mp) mp.label = newName;
+        await connectionManager!.updateConnection(node.connectionId, conn);
+        sidebarProvider!.refresh();
+      }),
+    );
+
     // Delete a remote path (mountedPath inline button)
     context.subscriptions.push(
       vscode.commands.registerCommand('remote-fs.deleteRemotePath', async (node?: { connectionId?: string; remotePath?: string; label?: string }) => {
